@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
 import { handleKeyboardListNavigation } from "@/lib/keyboard-list-navigation";
+import { effortLabel } from "@/lib/reasoning-effort";
 import {
 	PromptInput,
 	PromptInputAddAttachmentButton,
@@ -166,20 +167,6 @@ interface ChatPromptInputProps {
 	conversationMessages?: BaseMessage[];
 	loadLatestConversationMessages?: () => Promise<BaseMessage[]>;
 }
-
-// Human labels for the canonical effort ladder ("none" reads as Off — it
-// turns the model's thinking off entirely).
-const EFFORT_LABELS = new Map<string, string>([
-	["none", "Off"],
-	["minimal", "Minimal"],
-	["low", "Low"],
-	["medium", "Medium"],
-	["high", "High"],
-	["xhigh", "Extra high"],
-	["max", "Max"],
-]);
-
-const effortLabel = (effort: string) => EFFORT_LABELS.get(effort) ?? effort;
 
 const safeHttpUrl = (value: unknown): string | null => {
 	if (typeof value !== "string") return null;

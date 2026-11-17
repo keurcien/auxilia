@@ -37,6 +37,7 @@ import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { groupOptions } from "@/lib/groups";
+import { effortLabel } from "@/lib/reasoning-effort";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import * as agentsApi from "@/lib/api/resources/agents";
@@ -72,18 +73,6 @@ export type CapabilityTab =
 
 const slugify = (name: string) =>
 	name.trim().toLowerCase().replace(/\s+/g, "-") || "…";
-
-const EFFORT_LABELS = new Map<string, string>([
-	["none", "Off"],
-	["minimal", "Minimal"],
-	["low", "Low"],
-	["medium", "Medium"],
-	["high", "High"],
-	["xhigh", "Extra high"],
-	["max", "Max"],
-]);
-
-const effortLabel = (effort: string) => EFFORT_LABELS.get(effort) ?? effort;
 
 const TOOL_DISCOVERY_LABELS: Record<ToolDiscoveryMode, string> = {
 	disabled: "Eager",

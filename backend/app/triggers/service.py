@@ -15,6 +15,7 @@ from app.database import get_db
 from app.exceptions import (
     DomainError,
     DomainValidationError,
+    ModelUnavailableError,
     NotFoundError,
     PermissionDeniedError,
 )
@@ -70,6 +71,30 @@ _RESOURCE_FIELDS = (
     "disabled_subagent_ids",
 )
 _TOOL_RESOURCE_FIELD = "disabled_mcp_tools"
+
+
+async def _ensure_model_runnable(
+    model_service: ModelService, model_id: str | None
+) -> None:
+    """A null model resolves per firing to the agent's or workspace default,
+    so it only needs the workspace to have some available model."""
+    if model_id is not None:
+        await model_service.ensure_available(model_id)
+    elif await model_service.get_default_model_id() is None:
+        raise ModelUnavailableError("", "no model is available in the workspace")
+
+
+async def _validate_model_choice(
+    model_service: ModelService, model_id: str | None, reasoning_effort: str | None
+) -> None:
+    if model_id is None:
+        if reasoning_effort is not None:
+            raise DomainValidationError(
+                "Choose a model before setting a reasoning effort"
+            )
+        return
+    await model_service.ensure_available(model_id)
+    await ModelService.validate_reasoning_effort(model_id, reasoning_effort)
 
 
 class TriggerService(BaseService[TriggerDB, TriggerRepository]):
@@ -276,7 +301,11 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         """Project to responses with `model_available` and the whitelist
         display name stamped — one availability lookup for the whole batch,
         not one per trigger."""
-        available = {m.model_id for m in await self.model_service.list_available()}
+        available_models = await self.model_service.list_available()
+        available = {m.model_id for m in available_models}
+        has_default = (
+            await self.model_service.get_default_model_id(available_models) is not None
+        )
         names = {
             m.model_id: m.display_name for m in await self.model_service.list_catalog()
         }
@@ -307,8 +336,16 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                             user.id == trigger.owner_id
                             or user.role == WorkspaceRole.admin
                         ),
-                        "model_available": trigger.model_id in available,
-                        "model_display_name": names.get(trigger.model_id),
+                        "model_available": (
+                            trigger.model_id in available
+                            if trigger.model_id is not None
+                            else has_default
+                        ),
+                        "model_display_name": (
+                            names.get(trigger.model_id)
+                            if trigger.model_id is not None
+                            else None
+                        ),
                         "webhook_url": (
                             f"{auth_settings.FRONTEND_URL.rstrip('/')}"
                             f"/api/backend/triggers/webhooks/{trigger.webhook_id}"
@@ -409,9 +446,8 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 )
             ensure_valid_schedule(data.cron_expression, data.timezone)
         # Fail at save time, not first fire — 409 model_unavailable on the form.
-        await self.model_service.ensure_available(data.model_id)
-        await ModelService.validate_reasoning_effort(
-            data.model_id, data.reasoning_effort
+        await _validate_model_choice(
+            self.model_service, data.model_id, data.reasoning_effort
         )
         await self._ensure_agent_usable(data.agent_id, owner, self.workspace_id)
         audience_visibility = (
@@ -569,23 +605,32 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                     "Scheduled triggers require a schedule and timezone"
                 )
             ensure_valid_schedule(cron, timezone)
-        if "model_id" in update_data:
-            await self.model_service.ensure_available(update_data["model_id"])
+        next_model_id = update_data.get("model_id", trigger.model_id)
+        if "model_id" in update_data and next_model_id is not None:
+            await self.model_service.ensure_available(next_model_id)
         clear_stale_effort = False
         if "reasoning_effort" in update_data:
             # A fresh user choice is validated strictly against the model
             # that will be stored.
-            await ModelService.validate_reasoning_effort(
-                update_data.get("model_id", trigger.model_id),
-                update_data["reasoning_effort"],
-            )
+            if next_model_id is None:
+                if update_data["reasoning_effort"] is not None:
+                    raise DomainValidationError(
+                        "Choose a model before setting a reasoning effort"
+                    )
+            else:
+                await ModelService.validate_reasoning_effort(
+                    next_model_id, update_data["reasoning_effort"]
+                )
         elif "model_id" in update_data and trigger.reasoning_effort is not None:
             # Re-pointing the model with a carried-over effort the new model
             # doesn't declare must not block the edit (the stored value was
             # valid when saved) — clear it back to the model default, the
             # same clamp ensure_available applies at run time.
-            clear_stale_effort = not await ModelService.is_reasoning_effort_declared(
-                update_data["model_id"], trigger.reasoning_effort
+            clear_stale_effort = (
+                next_model_id is None
+                or not await ModelService.is_reasoning_effort_declared(
+                    next_model_id, trigger.reasoning_effort
+                )
             )
         agent_changed = (
             "agent_id" in update_data and update_data["agent_id"] != trigger.agent_id
@@ -624,14 +669,12 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 trigger.workspace_id,
             )
 
+        if clear_stale_effort:
+            data = data.model_copy(update={"reasoning_effort": None})
+            data.model_fields_set.add("reasoning_effort")
         trigger = await self.repository.update(trigger, data)
         if data.team_ids is not None:
             await self.repository.set_team_ids(trigger.id, data.team_ids)
-
-        if clear_stale_effort:
-            trigger.reasoning_effort = None
-            self.db.add(trigger)
-            await self.db.flush()
 
         # Rematerialize the schedule: pausing clears next_run_at so the row
         # drops out of the due scan; (re)activating or editing the schedule
@@ -732,7 +775,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         # Before creating the fire thread — RunService.create would reject the
         # run anyway, but this keeps a doomed request from leaving an orphan
         # thread behind.
-        await self.model_service.ensure_available(trigger.model_id)
+        await _ensure_model_runnable(self.model_service, trigger.model_id)
         thread = await self._create_fire_thread(trigger)
         await self.db.commit()
         record = await RunService().create(
@@ -796,7 +839,9 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         )
         if agent is None or agent.is_archived:
             raise DomainValidationError("Webhook agent is archived or deleted")
-        await ModelService(self.db, trigger.workspace_id).ensure_available(model_id)
+        await _ensure_model_runnable(
+            ModelService(self.db, trigger.workspace_id), model_id
+        )
 
         reasoning_effort = (
             trigger.reasoning_effort if model_id == trigger.model_id else None
@@ -996,9 +1041,11 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 trigger.next_run_at = None
                 self.db.add(trigger)
                 continue
-            if not await ModelService(self.db, trigger.workspace_id).is_available(
-                trigger.model_id
-            ):
+            try:
+                await _ensure_model_runnable(
+                    ModelService(self.db, trigger.workspace_id), trigger.model_id
+                )
+            except ModelUnavailableError:
                 # Skip the firing but keep the schedule advancing (mirrors the
                 # missed-run policy); the trigger recovers by itself when an
                 # admin re-enables the model. `last_run_at` tracks actual
@@ -1006,7 +1053,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 logger.warning(
                     "Skipping trigger %s: model %s is not available",
                     trigger.id,
-                    trigger.model_id,
+                    trigger.model_id or "(default)",
                 )
                 self.db.add(trigger)
                 continue

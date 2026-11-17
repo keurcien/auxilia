@@ -30,6 +30,8 @@ import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorSection } from "@/components/editor/editor-section";
 import { AgentPicker } from "@/components/editor/agent-picker";
 import { ModelPickerChip } from "@/components/editor/model-picker-chip";
+import { EffortPickerChip } from "@/components/editor/effort-picker-chip";
+import { useTriggerDefaultModel } from "@/app/(protected)/triggers/components/use-trigger-default-model";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
@@ -63,6 +65,7 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 		state.agents.find((a) => a.id === liveTrigger.agentId),
 	);
 	const fetchAgents = useAgentsStore((state) => state.fetchAgents);
+	const defaultModel = useTriggerDefaultModel(liveTrigger.agentId);
 
 	const [mode, setMode] = useState<"read" | "edit">("read");
 	const [isRunning, setIsRunning] = useState(false);
@@ -289,13 +292,20 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 					{!liveTrigger.modelAvailable && (
 						<div className="mt-5 flex items-start gap-2.5 rounded-[10px] bg-warning-bg px-4 py-3 text-[13.5px] font-medium text-warning dark:bg-amber-950/30 dark:text-amber-400">
 							<TriangleAlert className="mt-0.5 size-4 shrink-0" />
-							<span>
-								The model used by this trigger (
-								{liveTrigger.modelDisplayName ?? liveTrigger.modelId}) is no
-								longer available in this workspace, so this trigger cannot run.
-								Choose another model in Edit, or ask a workspace admin to
-								re-enable it.
-							</span>
+							{liveTrigger.modelId ? (
+								<span>
+									The model used by this trigger (
+									{liveTrigger.modelDisplayName ?? liveTrigger.modelId}) is no
+									longer available in this workspace, so this trigger cannot
+									run. Choose another model in Edit, or ask a workspace admin
+									to re-enable it.
+								</span>
+							) : (
+								<span>
+									No model is available in this workspace, so this trigger
+									cannot run. Ask a workspace admin to enable one.
+								</span>
+							)}
 						</div>
 					)}
 
@@ -324,13 +334,26 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 
 					<EditorSection label="Instructions">
 						<div className="flex flex-col rounded-[10px] border border-border bg-sidebar p-4 dark:bg-white/5">
-							<div className="mb-4 flex shrink-0 items-center justify-between border-b border-hairline pb-3.5 dark:border-white/5">
+							<div className="mb-4 flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline pb-3.5 dark:border-white/5">
 								<ModelPickerChip
 									value={liveTrigger.modelId}
 									onChange={() => {}}
 									disabled
 									unavailable={!liveTrigger.modelAvailable}
 									unavailableLabel={liveTrigger.modelDisplayName}
+									defaultOption={{
+										label: defaultModel.label,
+										modelId: defaultModel.modelId,
+									}}
+								/>
+								<EffortPickerChip
+									modelId={liveTrigger.modelId ?? defaultModel.modelId}
+									value={
+										liveTrigger.modelId
+											? liveTrigger.reasoningEffort
+											: defaultModel.reasoningEffort
+									}
+									disabled
 								/>
 							</div>
 							<p className="whitespace-pre-wrap text-[12.5px] leading-[1.7] text-foreground">

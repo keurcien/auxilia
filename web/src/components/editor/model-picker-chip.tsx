@@ -32,6 +32,13 @@ interface ModelPickerChipProps {
 	unavailable?: boolean;
 	/** Placeholder when no model is selected. */
 	emptyLabel?: string;
+	/** Offer a "follow the default" choice, stored as a null `value`.
+	 * `modelId` is the model it currently resolves to, shown alongside. */
+	defaultOption?: {
+		label: string;
+		modelId: string | null;
+		onSelect?: () => void;
+	};
 }
 
 /** Small pill showing the selected model; opens the model catalog dialog. */
@@ -42,6 +49,7 @@ export function ModelPickerChip({
 	unavailableLabel,
 	unavailable,
 	emptyLabel = "Select model",
+	defaultOption,
 }: ModelPickerChipProps) {
 	const models = useModelsStore((state) => state.models);
 	const isCatalogLoaded = useModelsStore((state) => state.isInitialized);
@@ -56,6 +64,12 @@ export function ModelPickerChip({
 	}, [fetchModels]);
 
 	const selected = models.find((model) => model.id === value);
+	const defaultModel = defaultOption?.modelId
+		? models.find((model) => model.id === defaultOption.modelId)
+		: undefined;
+	const defaultMatchesSearch =
+		!search.trim() ||
+		defaultOption?.label.toLowerCase().includes(search.trim().toLowerCase());
 	// Explicit server flag wins; otherwise infer from catalog membership, but
 	// only once the catalog actually loaded (no false warning during load).
 	const showAsUnavailable =
@@ -111,6 +125,24 @@ export function ModelPickerChip({
 				</span>
 			) : value ? (
 				<span className="truncate">{unavailableLabel ?? value}</span>
+			) : defaultOption ? (
+				<>
+					{defaultModel && (
+						<ModelSelectorLogo
+							provider={defaultModel.chefSlug}
+							className="size-3"
+						/>
+					)}
+					<span className="truncate">
+						{defaultOption.label}
+						{defaultModel && (
+							<span className="font-normal text-meta dark:text-panel-dim">
+								{" "}
+								({defaultModel.name})
+							</span>
+						)}
+					</span>
+				</>
 			) : (
 				<span className="text-meta dark:text-white/40">{emptyLabel}</span>
 			)}
@@ -152,7 +184,48 @@ export function ModelPickerChip({
 					role="listbox"
 					className="px-4 pb-5 max-h-[55vh] overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 				>
-					{!hasResults ? (
+					{defaultOption?.onSelect && defaultMatchesSearch && (
+						<div className="px-2 pt-2">
+							<button
+								type="button"
+								role="option"
+								data-keyboard-option="true"
+								aria-selected={value == null}
+								onClick={() => {
+									defaultOption.onSelect?.();
+									handleOpenChange(false);
+								}}
+								className={cn(
+									"flex w-full items-center gap-3 px-3 py-2.5 rounded-[10px] cursor-pointer transition-colors text-left outline-none focus-visible:bg-hover focus-visible:ring-2 focus-visible:ring-petrol/35 dark:focus-visible:bg-white/5",
+									"text-[14px] font-medium",
+									value == null
+										? "bg-petrol-tint dark:bg-white/5 text-foreground"
+										: "text-foreground hover:bg-hover dark:hover:bg-white/5",
+								)}
+							>
+								{defaultModel ? (
+									<ModelSelectorLogo provider={defaultModel.chefSlug} />
+								) : (
+									<span className="size-4 shrink-0" />
+								)}
+								<span className="flex min-w-0 flex-1 flex-col">
+									<span className="truncate">{defaultOption.label}</span>
+									{defaultModel && (
+										<span className="truncate text-[12px] font-normal text-meta dark:text-panel-dim">
+											Currently {defaultModel.name}
+										</span>
+									)}
+								</span>
+								{value == null && (
+									<CheckIcon
+										className="ml-auto size-4 shrink-0 text-petrol dark:text-panel-terminal"
+										strokeWidth={3}
+									/>
+								)}
+							</button>
+						</div>
+					)}
+					{!hasResults && !(defaultOption?.onSelect && defaultMatchesSearch) ? (
 						<div className="px-4 py-8 text-center text-[13px] text-faint dark:text-muted-foreground">
 							No models found.
 						</div>

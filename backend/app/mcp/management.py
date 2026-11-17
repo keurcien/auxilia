@@ -659,7 +659,10 @@ def register_management_tools(mcp: MCPServer) -> None:
         reminder that must not repeat, set run_once to true: the trigger pauses
         itself as soon as it fires and keeps its history. Set auto_complete to
         true when the user wants each firing's conversation marked as
-        completed once its run succeeds. Do not claim the
+        completed once its run succeeds. Leave model_id and reasoning_effort
+        null to follow the agent's default model, or the workspace default;
+        set model_id (and optionally reasoning_effort) from list_models only
+        when the user asks for a specific model or effort. Do not claim the
         automation is active until this tool returns the created trigger.
         Call get_agent_resources first when choosing resources. Put every
         unchosen resource ID in its matching disabled list and every rejected
@@ -681,11 +684,14 @@ def register_management_tools(mcp: MCPServer) -> None:
     async def update_trigger(
         trigger_id: UUID, data: TriggerPatch, ctx: Context
     ) -> dict[str, Any]:
-        """Update an existing trigger's instructions, schedule, state, or resources.
+        """Update an existing trigger's instructions, model, schedule, state, or resources.
 
         Set run_once to switch between one-shot and recurring firing, and
         is_active to true to re-arm a one-shot trigger that already fired.
         Set auto_complete to complete later firings' conversations on success.
+        Set model_id and reasoning_effort from list_models to pin a model and
+        effort; set both to null to go back to the agent or workspace default.
+        A trigger without model_id in get_trigger follows that default.
         """
         async with tool_session(ctx) as (db, user, workspace_id):
             return to_json(

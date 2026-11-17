@@ -16,7 +16,8 @@ interface TriggerBase {
 	projectId: string | null;
 	folderId: string | null;
 	agentId: string;
-	modelId: string;
+	/** Null follows the agent's default model, else the workspace default. */
+	modelId: string | null;
 	reasoningEffort: string | null;
 	triggerType: TriggerType;
 	isActive: boolean;
@@ -65,7 +66,7 @@ interface TriggerCreateBase {
 	group?: string | null;
 	instructions: string;
 	agentId: string;
-	modelId: string;
+	modelId?: string | null;
 	reasoningEffort?: string | null;
 	isActive?: boolean;
 	notificationsEnabled?: boolean;
@@ -99,7 +100,10 @@ export interface TriggerUpdate {
 	group?: string | null;
 	instructions?: string;
 	agentId?: string;
-	modelId?: string;
+	/** null = follow the agent or workspace default. */
+	modelId?: string | null;
+	/** null = the model's default. */
+	reasoningEffort?: string | null;
 	cronExpression?: string;
 	timezone?: string;
 	isActive?: boolean;

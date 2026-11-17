@@ -290,9 +290,20 @@ async def list_mcp_servers(ctx: Context) -> list[dict[str, Any]]:
 
 @auxilia_mcp.tool()
 async def list_models(ctx: Context) -> list[dict[str, Any]]:
-    """List models currently available for agent defaults and conversations."""
+    """List models available for agent defaults, triggers and conversations.
+
+    is_default marks the workspace default model. reasoning_effort_levels are
+    the values accepted as a reasoning effort for that model, and
+    reasoning_effort_default is the level applied when none is set.
+    """
     async with tool_session(ctx) as (db, _user, workspace_id):
-        return to_json(await ModelService(db, workspace_id).list_available())
+        service = ModelService(db, workspace_id)
+        available = await service.list_available()
+        default_model_id = await service.get_default_model_id(available)
+        return [
+            {**to_json(model), "is_default": model.model_id == default_model_id}
+            for model in available
+        ]
 
 
 register_management_tools(auxilia_mcp)

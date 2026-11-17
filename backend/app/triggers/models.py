@@ -34,10 +34,30 @@ class TriggerBase(SQLModel):
     agent_id: UUID = Field(
         foreign_key="agents.id", ondelete="CASCADE", index=True, nullable=False
     )
-    model_id: str = Field(max_length=255, nullable=False)
+    # NULL follows the agent's default model, else the workspace default,
+    # resolved on each firing like a new conversation with the agent.
+    model_id: str | None = Field(
+        default=None,
+        max_length=255,
+        nullable=True,
+        description=(
+            "Model running each firing, an ID from list_models. Null follows "
+            "the agent's default model, or the workspace default when the "
+            "agent has none."
+        ),
+    )
     # Reasoning-effort choice for the model, one of its whitelist-declared
     # levels; NULL = the model's default. Copied onto each firing's thread.
-    reasoning_effort: str | None = Field(default=None, max_length=32, nullable=True)
+    reasoning_effort: str | None = Field(
+        default=None,
+        max_length=32,
+        nullable=True,
+        description=(
+            "One of the model's reasoning_effort_levels from list_models. Null "
+            "uses the model's default effort. Requires model_id: with a null "
+            "model_id the agent's or workspace default effort applies."
+        ),
+    )
     cron_expression: str | None = Field(default=None, max_length=255, nullable=True)
     timezone: str | None = Field(default=None, max_length=64, nullable=True)
     is_active: bool = Field(default=True, nullable=False)

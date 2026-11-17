@@ -108,8 +108,22 @@ class AgentConfig(SQLModel):
     visibility: ResourceVisibility = ResourceVisibility.personal
     web_search_enabled: bool = False
     tool_discovery_mode: ToolDiscoveryMode = ToolDiscoveryMode.lazy
-    default_model_id: str | None = Field(default=None, max_length=255)
-    default_reasoning_effort: str | None = Field(default=None, max_length=32)
+    default_model_id: str | None = Field(
+        default=None,
+        max_length=255,
+        description=(
+            "Model preselected for new conversations, an ID from list_models. "
+            "Null uses the workspace default."
+        ),
+    )
+    default_reasoning_effort: str | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "One of default_model_id's reasoning_effort_levels from list_models. "
+            "Null uses the model's default effort."
+        ),
+    )
     team_ids: list[UUID] = []
     mcp_servers: list[AgentMCPServerConfig] = []
     sandboxes: list[AgentSandboxConfig] = []

@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import { Trigger } from "@/types/triggers";
 import { useProjectsStore } from "@/stores/projects-store";
 import { getProjectFolderPath } from "@/lib/project-folders";
+import { Switch } from "@/components/ui/switch";
 
 interface TriggerSettingsSummaryProps {
 	trigger: Trigger;
@@ -28,18 +30,14 @@ function SettingRow({
 	);
 }
 
-function ToggleState({ enabled }: { enabled: boolean }) {
+function ToggleState({ label, enabled }: { label: string; enabled: boolean }) {
 	return (
-		<span className="inline-flex items-center gap-1.5">
-			<span
-				className={`size-1.5 rounded-full ${
-					enabled ? "bg-success dark:bg-emerald-400" : "bg-faint dark:bg-white/20"
-				}`}
-			/>
-			<span className={enabled ? "" : "text-meta dark:text-panel-dim"}>
-				{enabled ? "On" : "Off"}
-			</span>
-		</span>
+		<Switch
+			checked={enabled}
+			disabled
+			aria-label={label}
+			className="align-middle disabled:cursor-default disabled:opacity-100"
+		/>
 	);
 }
 
@@ -81,18 +79,35 @@ export default function TriggerSettingsSummary({
 				)}
 			</SettingRow>
 			<SettingRow label="Project">
-				{projectLabel ?? (
+				{projectLabel && trigger.projectId ? (
+					<Link
+						href={
+							trigger.folderId
+								? `/projects/${trigger.projectId}?folder=${trigger.folderId}`
+								: `/projects/${trigger.projectId}`
+						}
+						className="text-petrol underline-offset-2 hover:underline dark:text-panel-terminal"
+					>
+						{projectLabel}
+					</Link>
+				) : (
 					<span className="text-meta dark:text-panel-dim">None</span>
 				)}
 			</SettingRow>
 			<SettingRow label="Push notifications">
-				<ToggleState enabled={trigger.notificationsEnabled} />
+				<ToggleState
+					label="Push notifications"
+					enabled={trigger.notificationsEnabled}
+				/>
 			</SettingRow>
 			<SettingRow label="Run once">
-				<ToggleState enabled={trigger.runOnce} />
+				<ToggleState label="Run once" enabled={trigger.runOnce} />
 			</SettingRow>
 			<SettingRow label="Complete automatically">
-				<ToggleState enabled={trigger.autoComplete} />
+				<ToggleState
+					label="Complete automatically"
+					enabled={trigger.autoComplete}
+				/>
 			</SettingRow>
 		</div>
 	);

@@ -10,7 +10,6 @@ import {
 	Schedule,
 } from "@/lib/triggers/schedule";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { getDefaultModel } from "@/lib/utils/get-default-model";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useModelsStore } from "@/stores/models-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -24,6 +23,7 @@ import { EditorSection } from "@/components/editor/editor-section";
 import { SaveActions } from "@/components/editor/save-actions";
 import { AgentPicker } from "@/components/editor/agent-picker";
 import { ModelPickerChip } from "@/components/editor/model-picker-chip";
+import { EffortPickerChip } from "@/components/editor/effort-picker-chip";
 import { GroupPicker } from "@/components/ui/group-picker";
 import {
 	AsyncSearchSelect,
@@ -41,6 +41,7 @@ import { PETROL_MONO_THEME } from "@/lib/shiki-petrol-mono";
 import ScheduleBuilder from "@/app/(protected)/triggers/components/schedule-builder";
 import NextRunsCard from "@/app/(protected)/triggers/components/next-runs-card";
 import TriggerResources from "@/app/(protected)/triggers/components/trigger-resources";
+import { useTriggerDefaultModel } from "@/app/(protected)/triggers/components/use-trigger-default-model";
 
 const slugify = (name: string) =>
 	name.trim().toLowerCase().replace(/\s+/g, "-") || "…";
@@ -51,6 +52,7 @@ interface TriggerFormState {
 	instructions: string;
 	agentId: string | null;
 	modelId: string | null;
+	reasoningEffort: string | null;
 	schedule: Schedule;
 	timezone: string;
 	visibility: ResourceVisibility;
@@ -78,6 +80,7 @@ function defaultForm(): TriggerFormState {
 		instructions: "",
 		agentId: null,
 		modelId: null,
+		reasoningEffort: null,
 		schedule: DEFAULT_SCHEDULE,
 		timezone: browserTimezone(),
 		visibility: "personal",
@@ -102,6 +105,7 @@ function fromTrigger(trigger: Trigger): TriggerFormState {
 		instructions: trigger.instructions,
 		agentId: trigger.agentId,
 		modelId: trigger.modelId,
+		reasoningEffort: trigger.reasoningEffort,
 		schedule:
 			trigger.triggerType === "schedule"
 				? parseCronExpression(trigger.cronExpression)
@@ -132,6 +136,7 @@ function toComparablePayload(form: TriggerFormState, triggerType: TriggerType) {
 		instructions: form.instructions.trim(),
 		agentId: form.agentId,
 		modelId: form.modelId,
+		reasoningEffort: form.reasoningEffort,
 		visibility: form.visibility,
 		teamIds: [...form.teamIds].sort(),
 		projectId: form.projectId,
@@ -206,8 +211,7 @@ export default function TriggerEditor({
 		setForm((prev) => ({ ...prev, [key]: value }));
 	};
 
-	const selectedModelId =
-		form.modelId ?? (trigger ? null : (getDefaultModel(models) ?? null));
+	const defaultModel = useTriggerDefaultModel(form.agentId);
 
 	const cronExpression = buildCronExpression(form.schedule);
 	const selectedProject = projects.find(
@@ -263,7 +267,6 @@ export default function TriggerEditor({
 		form.name.trim() &&
 		form.instructions.trim() &&
 		form.agentId &&
-		selectedModelId &&
 		(type === "webhook" || cronExpression) &&
 		(form.projectId !== null ||
 			form.visibility !== "teams" ||
@@ -271,7 +274,7 @@ export default function TriggerEditor({
 	);
 
 	const handleSave = async () => {
-		if (!canSave || !form.agentId || !selectedModelId) return;
+		if (!canSave || !form.agentId) return;
 		if (type === "schedule" && !cronExpression) return;
 		setIsSaving(true);
 		setError(null);
@@ -280,7 +283,8 @@ export default function TriggerEditor({
 			group: form.group || null,
 			instructions: form.instructions.trim(),
 			agentId: form.agentId,
-			modelId: selectedModelId,
+			modelId: form.modelId,
+			reasoningEffort: form.reasoningEffort,
 			projectId: form.projectId,
 			folderId: form.folderId,
 			...(form.projectId === null
@@ -535,23 +539,60 @@ export default function TriggerEditor({
 
 					<EditorSection label="Instructions" className="flex-1">
 						<div className="flex min-h-[300px] flex-1 flex-col rounded-[10px] border border-input bg-sidebar p-4 transition-[border-color,box-shadow] focus-within:border-petrol focus-within:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] dark:bg-white/5">
-							<div className="mb-4 flex shrink-0 items-center border-b border-hairline pb-3.5 dark:border-white/5">
+							<div className="mb-4 flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline pb-3.5 dark:border-white/5">
 								<ModelPickerChip
-									value={selectedModelId}
+									value={form.modelId}
+									defaultOption={{
+										label: defaultModel.label,
+										modelId: defaultModel.modelId,
+										onSelect: () => {
+											setForm((current) => ({
+												...current,
+												modelId: null,
+												reasoningEffort: null,
+											}));
+										},
+									}}
 									onChange={(modelId) => {
-										setField("modelId", modelId);
+										const levels =
+											models.find((model) => model.id === modelId)
+												?.reasoningEffortLevels ?? [];
+										setForm((current) => ({
+											...current,
+											modelId,
+											reasoningEffort:
+												current.reasoningEffort &&
+												levels.includes(current.reasoningEffort)
+													? current.reasoningEffort
+													: null,
+										}));
 									}}
 									unavailable={
-										trigger && selectedModelId === trigger.modelId
+										trigger && form.modelId === trigger.modelId
 											? !trigger.modelAvailable
 											: undefined
 									}
 									unavailableLabel={
-										trigger && selectedModelId === trigger.modelId
+										trigger && form.modelId === trigger.modelId
 											? trigger.modelDisplayName
 											: undefined
 									}
 								/>
+								{form.modelId ? (
+									<EffortPickerChip
+										modelId={form.modelId}
+										value={form.reasoningEffort}
+										onChange={(effort) => {
+											setField("reasoningEffort", effort);
+										}}
+									/>
+								) : (
+									<EffortPickerChip
+										modelId={defaultModel.modelId}
+										value={defaultModel.reasoningEffort}
+										disabled
+									/>
+								)}
 							</div>
 							<textarea
 								value={form.instructions}

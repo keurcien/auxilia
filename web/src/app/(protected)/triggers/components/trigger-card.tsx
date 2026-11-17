@@ -244,7 +244,11 @@ export default function TriggerCard({
 				{!trigger.modelAvailable && (
 					<div
 						className="flex h-[30px] max-w-full min-w-0 items-center gap-1.5 rounded-[4px] border border-[#F0E4D3] bg-[#FDF6EC] px-3 dark:border-amber-400/20 dark:bg-amber-950/30"
-						title={`The model used by this trigger (${trigger.modelDisplayName ?? trigger.modelId}) is no longer available, so it cannot run.`}
+						title={
+							trigger.modelId
+								? `The model used by this trigger (${trigger.modelDisplayName ?? trigger.modelId}) is no longer available, so it cannot run.`
+								: "No model is available in this workspace, so this trigger cannot run."
+						}
 					>
 						<TriangleAlert className="size-[13px] shrink-0 text-[#B4643C] dark:text-amber-400" />
 						<span className="truncate font-[family-name:var(--font-dm-sans)] text-[12.5px] font-medium text-[#B4643C] dark:text-amber-400">

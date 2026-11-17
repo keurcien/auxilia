@@ -103,8 +103,21 @@ class TriggerPatch(SQLModel):
     group: str | None = None
     instructions: str | None = Field(default=None, max_length=110_000)
     agent_id: UUID | None = None
-    model_id: str | None = None
-    reasoning_effort: str | None = None
+    model_id: str | None = Field(
+        default=None,
+        description=(
+            "A model ID from list_models. An explicit null follows the agent's "
+            "default model, or the workspace default; omit to keep the current one."
+        ),
+    )
+    reasoning_effort: str | None = Field(
+        default=None,
+        description=(
+            "One of the model's reasoning_effort_levels from list_models. An "
+            "explicit null uses the model's default effort; it must stay null "
+            "while model_id is null."
+        ),
+    )
     cron_expression: str | None = None
     timezone: str | None = None
     is_active: bool | None = None
@@ -174,7 +187,7 @@ class TriggerResponse(SQLModel):
     effective_visibility: ResourceVisibility = ResourceVisibility.personal
     effective_team_ids: list[UUID] = Field(default_factory=list)
     agent_id: UUID
-    model_id: str
+    model_id: str | None = None
     reasoning_effort: str | None = None
     trigger_type: TriggerType
     cron_expression: str | None = None
