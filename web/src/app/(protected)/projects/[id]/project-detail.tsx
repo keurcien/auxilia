@@ -45,7 +45,7 @@ import {
 	SubpageHeader,
 } from "@/components/layout/subpage-header";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { type BulkAction, BulkActionBar } from "@/components/ui/bulk-action-bar";
 import {
 	BulkConfirmDialog,
 	type BulkFailure,
@@ -1031,6 +1031,7 @@ export default function ProjectDetailView({
 	const [infoOpen, setInfoOpen] = useState(false);
 	const [folderDialog, setFolderDialog] = useState<FolderDialogState>(null);
 	const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+	const [bulkBusy, setBulkBusy] = useState(false);
 	// Set when deleting one conversation from its menu instead of the selection.
 	const [deleteTarget, setDeleteTarget] = useState<ProjectThread | null>(null);
 	const [movingThread, setMovingThread] =
@@ -1340,19 +1341,129 @@ export default function ProjectDetailView({
 		: [];
 
 	const visibleThreads = needle ? searchThreads : threads;
-	const deletableThreadIds = canDeleteThreads
-		? visibleThreads
-				.filter((thread) => thread.canDelete)
-				.map((thread) => thread.id)
-		: [];
+	const isDeletable = (thread: ProjectThread) =>
+		canDeleteThreads && thread.canDelete;
+	// Completed conversations have no read state; only owners complete them.
+	const isSelectable = (thread: ProjectThread) =>
+		thread.completedAt === null || thread.canManage || isDeletable(thread);
+	const selectableThreadIds = visibleThreads
+		.filter(isSelectable)
+		.map((thread) => thread.id);
 	const selection = useRowSelection({
 		orderedIds: visibleThreads.map((thread) => thread.id),
-		eligibleIds: deletableThreadIds,
+		eligibleIds: selectableThreadIds,
 	});
 	const selectedThreads = visibleThreads.filter((thread) =>
 		selection.isSelected(thread.id),
 	);
-	const threadsToDelete = deleteTarget ? [deleteTarget] : selectedThreads;
+	const threadsToDelete = deleteTarget
+		? [deleteTarget]
+		: selectedThreads.filter(isDeletable);
+
+	const runBulk = async (
+		targets: ProjectThread[],
+		update: (thread: ProjectThread) => Promise<unknown>,
+	) => {
+		setBulkBusy(true);
+		try {
+			const results = await Promise.allSettled(targets.map(update));
+			const failed = results.filter(
+				(result) => result.status === "rejected",
+			).length;
+			if (failed > 0) {
+				toast.error(
+					failed === targets.length
+						? "The conversations could not be updated."
+						: `${failed} of ${targets.length} conversations could not be updated.`,
+				);
+			}
+			await refreshDetail(detail.id);
+		} finally {
+			setBulkBusy(false);
+		}
+	};
+
+	const withCount = (label: string, count: number) =>
+		count === selectedThreads.length ? label : `${label} (${count})`;
+	const openSelected = selectedThreads.filter(
+		(thread) => thread.completedAt === null,
+	);
+	const toMarkRead = openSelected.filter((thread) => thread.isUnread);
+	const toMarkUnread = openSelected.filter((thread) => !thread.isUnread);
+	const ownedSelected = selectedThreads.filter((thread) => thread.canManage);
+	const toComplete = ownedSelected.filter(
+		(thread) => thread.completedAt === null,
+	);
+	const toReopen = ownedSelected.filter(
+		(thread) => thread.completedAt !== null,
+	);
+	const deletableSelected = selectedThreads.filter(isDeletable);
+	const bulkActions: BulkAction[] = [
+		...(toMarkRead.length > 0
+			? [
+					{
+						label: withCount("Mark as read", toMarkRead.length),
+						icon: <MailOpen />,
+						onClick: () => {
+							void runBulk(toMarkRead, (thread) =>
+								setThreadReadState(thread.id, false),
+							);
+						},
+					},
+				]
+			: []),
+		...(toMarkUnread.length > 0
+			? [
+					{
+						label: withCount("Mark as unread", toMarkUnread.length),
+						icon: <Mail />,
+						onClick: () => {
+							void runBulk(toMarkUnread, (thread) =>
+								setThreadReadState(thread.id, true),
+							);
+						},
+					},
+				]
+			: []),
+		...(toComplete.length > 0
+			? [
+					{
+						label: withCount("Mark as complete", toComplete.length),
+						icon: <CircleCheck />,
+						onClick: () => {
+							void runBulk(toComplete, (thread) =>
+								setThreadCompleted(thread.id, true),
+							);
+						},
+					},
+				]
+			: toReopen.length > 0
+				? [
+						{
+							label: withCount("Reopen", toReopen.length),
+							icon: <Undo2 />,
+							onClick: () => {
+								void runBulk(toReopen, (thread) =>
+									setThreadCompleted(thread.id, false),
+								);
+							},
+						},
+					]
+				: []),
+		...(deletableSelected.length > 0
+			? [
+					{
+						label: withCount("Delete", deletableSelected.length),
+						icon: <Trash2 />,
+						destructive: true,
+						onClick: () => {
+							setDeleteTarget(null);
+							setBulkDeleteOpen(true);
+						},
+					},
+				]
+			: []),
+	];
 
 	const renderFolder = (folder: ProjectFolder) => (
 		<FolderRow
@@ -1384,7 +1495,7 @@ export default function ProjectDetailView({
 		<ThreadRow
 			key={thread.id}
 			thread={thread}
-			selectable={canDeleteThreads && thread.canDelete}
+			selectable={isSelectable(thread)}
 			selected={selection.isSelected(thread.id)}
 			selectionMode={selection.selectionMode}
 			onToggleSelected={(shiftKey) => {
@@ -1689,19 +1800,16 @@ export default function ProjectDetailView({
 											</label>
 										</div>
 									)}
-									{deletableThreadIds.length > 0 && (
+									{selectableThreadIds.length > 0 && (
 										<BulkActionBar
 											selectedCount={selection.selectedCount}
-											totalCount={deletableThreadIds.length}
+											totalCount={selectableThreadIds.length}
 											allSelected={selection.allSelected}
 											someSelected={selection.someSelected}
 											onToggleAll={selection.toggleAll}
 											onClear={selection.clear}
-											actionLabel="Delete"
-											onAction={() => {
-												setDeleteTarget(null);
-												setBulkDeleteOpen(true);
-											}}
+											actions={bulkActions}
+											busy={bulkBusy}
 											showWhenEmpty
 										/>
 									)}

@@ -535,15 +535,7 @@ export default function TriggerEditor({
 
 					<EditorSection label="Instructions" className="flex-1">
 						<div className="flex min-h-[300px] flex-1 flex-col rounded-[10px] border border-input bg-sidebar p-4 transition-[border-color,box-shadow] focus-within:border-petrol focus-within:shadow-[0_0_0_3px_rgba(22,96,110,0.10)] dark:bg-white/5">
-							<textarea
-								value={form.instructions}
-								onChange={(e) => {
-									setField("instructions", e.target.value);
-								}}
-								placeholder="The message sent to the agent on every run…"
-								className="w-full flex-1 resize-none border-none bg-transparent text-[12.5px] leading-[1.7] text-foreground placeholder:text-meta dark:placeholder:text-panel-dim focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-							/>
-							<div className="mt-4 flex shrink-0 items-center border-t border-hairline pt-3.5 dark:border-white/5">
+							<div className="mb-4 flex shrink-0 items-center border-b border-hairline pb-3.5 dark:border-white/5">
 								<ModelPickerChip
 									value={selectedModelId}
 									onChange={(modelId) => {
@@ -561,6 +553,14 @@ export default function TriggerEditor({
 									}
 								/>
 							</div>
+							<textarea
+								value={form.instructions}
+								onChange={(e) => {
+									setField("instructions", e.target.value);
+								}}
+								placeholder="The message sent to the agent on every run…"
+								className="w-full flex-1 resize-none border-none bg-transparent text-[12.5px] leading-[1.7] text-foreground placeholder:text-meta dark:placeholder:text-panel-dim focus:outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+							/>
 						</div>
 					</EditorSection>
 				</div>

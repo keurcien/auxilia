@@ -253,6 +253,7 @@
 	--pm-border-input: var(--pm-panel-border-strong);
 	--pm-rail: rgba(255, 255, 255, 0.08);
 	--pm-border-hover: rgba(255, 255, 255, 0.2);
+	--pm-hover: rgba(255, 255, 255, 0.05);
 	--pm-warning: #e9b96e;
 	--pm-warning-bg: rgba(233, 185, 110, 0.12);
 	--background: var(--pm-panel);

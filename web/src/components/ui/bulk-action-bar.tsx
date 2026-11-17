@@ -4,6 +4,13 @@ import { Trash2, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
+export interface BulkAction {
+	label: string;
+	icon?: React.ReactNode;
+	onClick: () => void;
+	destructive?: boolean;
+}
+
 interface BulkActionBarProps {
 	selectedCount: number;
 	totalCount: number;
@@ -11,10 +18,15 @@ interface BulkActionBarProps {
 	someSelected: boolean;
 	onToggleAll: () => void;
 	onClear: () => void;
-	actionLabel: string;
-	onAction: () => void;
-	showWhenEmpty?: boolean;
+	/** Single destructive action; ignored when `actions` is given. */
+	actionLabel?: string;
+	onAction?: () => void;
 	actionIcon?: React.ReactNode;
+	/** Several actions, in display order. */
+	actions?: BulkAction[];
+	/** Disables the actions while one runs. */
+	busy?: boolean;
+	showWhenEmpty?: boolean;
 	className?: string;
 }
 
@@ -27,8 +39,10 @@ export function BulkActionBar({
 	onClear,
 	actionLabel,
 	onAction,
-	showWhenEmpty = false,
 	actionIcon = <Trash2 className="size-3.5" />,
+	actions,
+	busy = false,
+	showWhenEmpty = false,
 	className,
 }: BulkActionBarProps) {
 	if (selectedCount === 0) {
@@ -51,6 +65,12 @@ export function BulkActionBar({
 			</div>
 		);
 	}
+
+	const items: BulkAction[] =
+		actions ??
+		(actionLabel && onAction
+			? [{ label: actionLabel, icon: actionIcon, onClick: onAction, destructive: true }]
+			: []);
 
 	return (
 		<div
@@ -75,14 +95,25 @@ export function BulkActionBar({
 				<X className="size-3" />
 				Clear
 			</button>
-			<button
-				type="button"
-				onClick={onAction}
-				className="ml-auto inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-[#B04A3A] px-3 py-1.5 text-[11.5px] font-semibold text-white shadow-[0_1px_2px_rgba(105,38,28,0.2)] transition-[background-color,transform] hover:bg-[#9E4032] active:translate-y-px"
-			>
-				{actionIcon}
-				{actionLabel}
-			</button>
+			<div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+				{items.map((action) => (
+					<button
+						key={action.label}
+						type="button"
+						disabled={busy}
+						onClick={action.onClick}
+						className={cn(
+							"inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[7px] px-3 py-1.5 text-[11.5px] font-semibold transition-[background-color,border-color,transform] active:translate-y-px disabled:cursor-default disabled:opacity-50 disabled:active:translate-y-0 [&_svg]:size-3.5",
+							action.destructive
+								? "bg-[#B04A3A] text-white shadow-[0_1px_2px_rgba(105,38,28,0.2)] hover:bg-[#9E4032]"
+								: "border border-border bg-card text-foreground hover:border-border-hover dark:border-white/10 dark:hover:border-white/20",
+						)}
+					>
+						{action.icon}
+						{action.label}
+					</button>
+				))}
+			</div>
 		</div>
 	);
 }

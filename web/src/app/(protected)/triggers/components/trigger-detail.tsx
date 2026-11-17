@@ -36,6 +36,7 @@ import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import TriggerEditor from "@/app/(protected)/triggers/components/trigger-editor";
 import TriggerSummaryBanner from "@/app/(protected)/triggers/components/trigger-summary-banner";
 import TriggerResources from "@/app/(protected)/triggers/components/trigger-resources";
+import TriggerSettingsSummary from "@/app/(protected)/triggers/components/trigger-settings-summary";
 import NextRunsCard from "@/app/(protected)/triggers/components/next-runs-card";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import { UsageBadge } from "@/components/usage/usage-badge";
@@ -317,12 +318,13 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 						/>
 					</EditorSection>
 
+					<EditorSection label="Settings">
+						<TriggerSettingsSummary trigger={liveTrigger} />
+					</EditorSection>
+
 					<EditorSection label="Instructions">
 						<div className="flex flex-col rounded-[10px] border border-border bg-sidebar p-4 dark:bg-white/5">
-							<p className="whitespace-pre-wrap text-[12.5px] leading-[1.7] text-foreground">
-								{liveTrigger.instructions}
-							</p>
-							<div className="mt-4 flex shrink-0 items-center justify-between border-t border-hairline pt-3.5 dark:border-white/5">
+							<div className="mb-4 flex shrink-0 items-center justify-between border-b border-hairline pb-3.5 dark:border-white/5">
 								<ModelPickerChip
 									value={liveTrigger.modelId}
 									onChange={() => {}}
@@ -331,6 +333,9 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 									unavailableLabel={liveTrigger.modelDisplayName}
 								/>
 							</div>
+							<p className="whitespace-pre-wrap text-[12.5px] leading-[1.7] text-foreground">
+								{liveTrigger.instructions}
+							</p>
 						</div>
 					</EditorSection>
 				</div>
