@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.153](https://github.com/jr-k/auxilia/compare/web-v0.12.152...web-v0.12.153) (2026-11-17)
+
+
+### Features
+
+* **triggers:** reasoning effort and workspace default model, settable from the internal MCP ([#313](https://github.com/jr-k/auxilia/issues/313)) ([e152565](https://github.com/jr-k/auxilia/commit/e15256502da4bb936de6646972f93e8ff78e0537))
+
 ## [0.12.152](https://github.com/jr-k/auxilia/compare/web-v0.12.151...web-v0.12.152) (2026-11-17)
 
 

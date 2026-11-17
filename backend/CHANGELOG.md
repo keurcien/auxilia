@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.116](https://github.com/jr-k/auxilia/compare/backend-v0.11.115...backend-v0.11.116) (2026-11-17)
+
+
+### Features
+
+* **triggers:** reasoning effort and workspace default model, settable from the internal MCP ([#313](https://github.com/jr-k/auxilia/issues/313)) ([e152565](https://github.com/jr-k/auxilia/commit/e15256502da4bb936de6646972f93e8ff78e0537))
+
 ## [0.11.115](https://github.com/jr-k/auxilia/compare/backend-v0.11.114...backend-v0.11.115) (2026-11-17)
 
 
