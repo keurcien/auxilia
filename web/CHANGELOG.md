@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.151](https://github.com/jr-k/auxilia/compare/web-v0.12.150...web-v0.12.151) (2026-11-17)
+
+
+### Features
+
+* **web:** project bulk read/complete actions, trigger settings in show view ([#309](https://github.com/jr-k/auxilia/issues/309)) ([bf85185](https://github.com/jr-k/auxilia/commit/bf85185a0bcc08111f9423935709d3adc3651ab5))
+
 ## [0.12.150](https://github.com/jr-k/auxilia/compare/web-v0.12.149...web-v0.12.150) (2026-11-16)
 
 
