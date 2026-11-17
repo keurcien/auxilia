@@ -692,7 +692,7 @@ function ThreadRow({
 				</span>
 			</Link>
 			<span className="ml-3 mr-1 flex size-8 shrink-0 items-center justify-center">
-				{thread.canManage ? (
+				{thread.canComplete ? (
 					<ConversationCompletionButton
 						completed={thread.completedAt !== null}
 						onToggle={onToggleCompletion}
@@ -723,7 +723,7 @@ function ThreadRow({
 								},
 							]
 						: []),
-					...(thread.canManage
+					...(thread.canComplete
 						? [
 								{
 									label:
@@ -732,6 +732,10 @@ function ThreadRow({
 										thread.completedAt === null ? <CircleCheck /> : <Undo2 />,
 									onClick: onToggleCompletion,
 								},
+							]
+						: []),
+					...(thread.canManage
+						? [
 								{
 									label: "Move or detach conversation",
 									icon: <FolderInput />,
@@ -1343,9 +1347,9 @@ export default function ProjectDetailView({
 	const visibleThreads = needle ? searchThreads : threads;
 	const isDeletable = (thread: ProjectThread) =>
 		canDeleteThreads && thread.canDelete;
-	// Completed conversations have no read state; only owners complete them.
+	// Completed conversations have no read state.
 	const isSelectable = (thread: ProjectThread) =>
-		thread.completedAt === null || thread.canManage || isDeletable(thread);
+		thread.completedAt === null || thread.canComplete || isDeletable(thread);
 	const selectableThreadIds = visibleThreads
 		.filter(isSelectable)
 		.map((thread) => thread.id);
@@ -1390,11 +1394,13 @@ export default function ProjectDetailView({
 	);
 	const toMarkRead = openSelected.filter((thread) => thread.isUnread);
 	const toMarkUnread = openSelected.filter((thread) => !thread.isUnread);
-	const ownedSelected = selectedThreads.filter((thread) => thread.canManage);
-	const toComplete = ownedSelected.filter(
+	const completableSelected = selectedThreads.filter(
+		(thread) => thread.canComplete,
+	);
+	const toComplete = completableSelected.filter(
 		(thread) => thread.completedAt === null,
 	);
-	const toReopen = ownedSelected.filter(
+	const toReopen = completableSelected.filter(
 		(thread) => thread.completedAt !== null,
 	);
 	const deletableSelected = selectedThreads.filter(isDeletable);
@@ -1437,19 +1443,20 @@ export default function ProjectDetailView({
 						},
 					},
 				]
-			: toReopen.length > 0
-				? [
-						{
-							label: withCount("Reopen", toReopen.length),
-							icon: <Undo2 />,
-							onClick: () => {
-								void runBulk(toReopen, (thread) =>
-									setThreadCompleted(thread.id, false),
-								);
-							},
+			: []),
+		...(toReopen.length > 0
+			? [
+					{
+						label: withCount("Reopen", toReopen.length),
+						icon: <Undo2 />,
+						onClick: () => {
+							void runBulk(toReopen, (thread) =>
+								setThreadCompleted(thread.id, false),
+							);
 						},
-					]
-				: []),
+					},
+				]
+			: []),
 		...(deletableSelected.length > 0
 			? [
 					{

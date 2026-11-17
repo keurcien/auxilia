@@ -507,7 +507,7 @@ function ContextPanel({
 								void choose(file.id);
 							}}
 							className={cn(
-								"flex w-full cursor-pointer items-start gap-2 rounded-[6px] px-2 py-2 text-left transition-colors hover:bg-hover",
+								"my-px flex w-full cursor-pointer items-start gap-2 rounded-[6px] px-2 py-2 text-left transition-colors hover:bg-hover",
 								selectedId === file.id && "bg-petrol-tint dark:bg-white/10",
 							)}
 						>

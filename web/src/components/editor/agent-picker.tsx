@@ -129,7 +129,7 @@ export function AgentPicker({ value, onChange, disabled }: AgentPickerProps) {
 								data-keyboard-option="true"
 								aria-selected={isActive}
 								className={cn(
-									"flex w-full items-center gap-3.5 px-3 py-2.5 rounded-[10px] cursor-pointer text-left outline-none transition-all duration-200 group focus-visible:ring-2 focus-visible:ring-petrol/35",
+									"my-px flex w-full items-center gap-3.5 px-3 py-2.5 rounded-[10px] cursor-pointer text-left outline-none transition-all duration-200 group focus-visible:ring-2 focus-visible:ring-petrol/35",
 									isActive
 										? "bg-petrol-tint dark:bg-white/5"
 										: "hover:bg-hover focus-visible:bg-hover dark:hover:bg-white/5 dark:focus-visible:bg-white/5",

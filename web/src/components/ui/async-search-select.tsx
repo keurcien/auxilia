@@ -140,7 +140,7 @@ export function AsyncSearchSelect({
 									onChange(null, null);
 								}}
 								className={cn(
-									"flex cursor-pointer items-center gap-2 rounded-[7px] px-3 py-2.5 text-[12.5px] text-foreground outline-none data-[highlighted]:bg-sidebar",
+									"my-px flex cursor-pointer items-center gap-2 rounded-[7px] px-3 py-2.5 text-[12.5px] text-foreground outline-none data-[highlighted]:bg-sidebar",
 									value === null && "bg-petrol-tint dark:bg-white/5",
 								)}
 							>
@@ -158,7 +158,7 @@ export function AsyncSearchSelect({
 										onChange(option.value, option);
 									}}
 									className={cn(
-										"flex cursor-pointer items-center gap-2 rounded-[7px] px-3 py-2.5 text-foreground outline-none data-[highlighted]:bg-sidebar",
+										"my-px flex cursor-pointer items-center gap-2 rounded-[7px] px-3 py-2.5 text-foreground outline-none data-[highlighted]:bg-sidebar",
 										value === option.value &&
 											"bg-petrol-tint dark:bg-white/5",
 									)}

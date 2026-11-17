@@ -172,7 +172,7 @@ export function UsageFilterSearch({
 											select(option);
 										}}
 										className={cn(
-											"flex cursor-pointer items-center gap-2.5 rounded-[7px] px-2.5 py-2 text-foreground outline-none data-[highlighted]:bg-sidebar",
+											"my-px flex cursor-pointer items-center gap-2.5 rounded-[7px] px-2.5 py-2 text-foreground outline-none data-[highlighted]:bg-sidebar",
 											active && "bg-petrol-tint dark:bg-white/5",
 										)}
 									>

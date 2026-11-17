@@ -194,10 +194,13 @@ class ProjectRepository(BaseRepository[ProjectDB]):
         return folder
 
     async def list_threads(self, project_id: UUID, viewer_id: UUID):
-        is_unread = or_(
-            ThreadDB.response_version
-            > func.coalesce(ThreadReadStateDB.last_read_version, 0),
-            func.coalesce(ThreadReadStateDB.manually_unread, False).is_(True),
+        is_unread = and_(
+            col(ThreadDB.completed_at).is_(None),
+            or_(
+                ThreadDB.response_version
+                > func.coalesce(ThreadReadStateDB.last_read_version, 0),
+                func.coalesce(ThreadReadStateDB.manually_unread, False).is_(True),
+            ),
         )
         stmt = (
             select(ThreadDB, is_unread.label("is_unread"))

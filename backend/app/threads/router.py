@@ -263,7 +263,7 @@ async def update_thread_completion(
     service: ThreadService = Depends(get_thread_service),
 ) -> ThreadResponse:
     thread = await service.get(thread_id)
-    if thread.user_id != current_user.id:
+    if thread.user_id != current_user.id and current_user.role != WorkspaceRole.admin:
         raise PermissionDeniedError("Not authorized to edit this thread")
     return await service.update_completion(thread_id, data)
 

@@ -731,7 +731,7 @@ function ProjectResources({
 								active && "bg-sidebar-accent font-semibold",
 							)}
 						>
-							{owned ? (
+							{thread.canComplete ? (
 								<ConversationCompletionButton
 									completed={thread.completedAt !== null}
 									onToggle={() => {
@@ -780,7 +780,7 @@ function ProjectResources({
 											},
 										]
 									: []),
-								...(owned
+								...(thread.canComplete
 									? [
 											{
 												label:
@@ -797,6 +797,10 @@ function ProjectResources({
 													onToggleCompletion(thread);
 												},
 											},
+										]
+									: []),
+								...(owned
+									? [
 											{
 												label: "Move conversation",
 												icon: <FolderInput />,

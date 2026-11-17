@@ -197,7 +197,13 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 		const completedAt = completed ? new Date().toISOString() : null;
 		set((state) => ({
 			threads: state.threads.map((thread) =>
-				thread.id === threadId ? { ...thread, completedAt } : thread,
+				thread.id === threadId
+					? {
+							...thread,
+							completedAt,
+							isUnread: completed ? false : thread.isUnread,
+						}
+					: thread,
 			),
 		}));
 		try {

@@ -33,10 +33,14 @@ class ThreadRepository(BaseRepository[ThreadDB]):
 
     @staticmethod
     def _is_unread():
-        return or_(
-            ThreadDB.response_version
-            > func.coalesce(ThreadReadStateDB.last_read_version, 0),
-            func.coalesce(ThreadReadStateDB.manually_unread, False).is_(True),
+        # Completed threads are read-only, so they can never be marked read.
+        return and_(
+            ThreadDB.completed_at.is_(None),
+            or_(
+                ThreadDB.response_version
+                > func.coalesce(ThreadReadStateDB.last_read_version, 0),
+                func.coalesce(ThreadReadStateDB.manually_unread, False).is_(True),
+            ),
         )
 
     @staticmethod
