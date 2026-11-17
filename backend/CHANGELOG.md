@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.115](https://github.com/jr-k/auxilia/compare/backend-v0.11.114...backend-v0.11.115) (2026-11-17)
+
+
+### Bug Fixes
+
+* admins complete project conversations, completed ones are never unread ([#311](https://github.com/jr-k/auxilia/issues/311)) ([a613072](https://github.com/jr-k/auxilia/commit/a613072ed6113ef52a9ac99551c046ab6f641377))
+
 ## [0.11.114](https://github.com/jr-k/auxilia/compare/backend-v0.11.113...backend-v0.11.114) (2026-11-16)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.152](https://github.com/jr-k/auxilia/compare/web-v0.12.151...web-v0.12.152) (2026-11-17)
+
+
+### Bug Fixes
+
+* admins complete project conversations, completed ones are never unread ([#311](https://github.com/jr-k/auxilia/issues/311)) ([a613072](https://github.com/jr-k/auxilia/commit/a613072ed6113ef52a9ac99551c046ab6f641377))
+
 ## [0.12.151](https://github.com/jr-k/auxilia/compare/web-v0.12.150...web-v0.12.151) (2026-11-17)
 
 
