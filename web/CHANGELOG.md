@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.154](https://github.com/jr-k/auxilia/compare/web-v0.12.153...web-v0.12.154) (2026-11-18)
+
+
+### Bug Fixes
+
+* **web:** keep user row actions visible so owners can always supervise ([#315](https://github.com/jr-k/auxilia/issues/315)) ([e720a7d](https://github.com/jr-k/auxilia/commit/e720a7d4b6bb75ed03fbe98d8b28c42de43f7ac1))
+
 ## [0.12.153](https://github.com/jr-k/auxilia/compare/web-v0.12.152...web-v0.12.153) (2026-11-17)
 
 
