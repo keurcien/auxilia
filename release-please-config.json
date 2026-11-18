@@ -20,7 +20,8 @@
     "backend": {
       "release-type": "python",
       "package-name": "auxilia-backend",
-      "component": "backend"
+      "component": "backend",
+      "extra-files": ["app/version.py"]
     },
     "web": {
       "release-type": "node",
