@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.155](https://github.com/jr-k/auxilia/compare/web-v0.12.154...web-v0.12.155) (2026-11-18)
+
+
+### Bug Fixes
+
+* **web:** plain actions cell on the users table ([#317](https://github.com/jr-k/auxilia/issues/317)) ([bac562a](https://github.com/jr-k/auxilia/commit/bac562a7af60f17199b9a9105ac62f0a11446481))
+
 ## [0.12.154](https://github.com/jr-k/auxilia/compare/web-v0.12.153...web-v0.12.154) (2026-11-18)
 
 
