@@ -61,6 +61,12 @@ def _build_server() -> MCPServer:
         capabilities = ctx.client_capabilities
         return dict(capabilities.extensions or {}) if capabilities else {}
 
+    @server.tool()
+    def client_name(ctx: Context) -> str:
+        """The name the client gave in `initialize` or the request envelope."""
+        params = ctx.request_context.session.client_params
+        return params.client_info.name if params else ""
+
     @server.resource(WIDGET_URI, mime_type="text/html;profile=mcp-app")
     def widget_html() -> str:
         return "<html>widget</html>"
@@ -133,8 +139,22 @@ async def test_open_client_lists_tools_and_advertises_the_ui_extension(live_serv
         names = sorted(tool.name for tool in await client.list_tools())
         result = await client.call_tool("advertised_extensions")
 
-    assert names == ["advertised_extensions", "echo", "fail", "widget"]
+    assert names == ["advertised_extensions", "client_name", "echo", "fail", "widget"]
     assert UI_EXTENSION in result.data
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_the_client_names_itself_auxilia_in_both_eras(live_server, mode):
+    """2026-07-28 carries the name in every request's `_meta` envelope; legacy
+    servers get it once, in `initialize`."""
+    client = build_client(ConnectionSpec(url=live_server.url))
+    client.mode = mode
+    async with client:
+        result = await client.call_tool("client_name")
+        era = client.protocol_version
+
+    assert result.content[0].text == "auxilia"
+    assert (era == "2026-07-28") == (mode == "auto")
 
 
 async def test_the_legacy_handshake_also_advertises_the_ui_extension(live_server):
