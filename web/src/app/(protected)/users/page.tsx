@@ -912,6 +912,7 @@ export default function UsersPage() {
 			key: "actions",
 			header: "",
 			width: "36px",
+			pinEnd: true,
 			cell: (user) => {
 				const isCurrentUser = user.id === currentUser?.id;
 				return (
