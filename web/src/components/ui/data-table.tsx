@@ -19,9 +19,6 @@ export interface DataTableColumn<T> {
 	 * md range next to the sidebar. */
 	hideBelowLg?: boolean;
 	align?: "left" | "center" | "right";
-	/** Keep the cell visible at the right edge while a `minTableWidth` table
-	 * scrolls horizontally (row actions). Not supported with `scrollBody`. */
-	pinEnd?: boolean;
 	cell: (row: T) => ReactNode;
 }
 
@@ -79,9 +76,6 @@ const HEADER_LABEL_CLASS =
 	"text-[10px] font-semibold text-meta dark:text-panel-dim";
 const ROW_CLASS =
 	"group border-b border-hairline py-[11px] transition-colors duration-[110ms] last:border-b-0 hover:bg-sidebar dark:border-white/5 dark:hover:bg-white/5";
-// Opaque so scrolled cells pass beneath it; repeats the row hover tint.
-const PINNED_CELL_CLASS =
-	"sticky right-0 z-[1] -my-[11px] self-stretch flex items-center justify-center bg-card group-hover:bg-sidebar dark:group-hover:[background-image:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05))] transition-colors duration-[110ms]";
 const PAGER_BUTTON_CLASS =
 	"flex size-7 items-center justify-center rounded-[7px] border border-border font-mono text-[11.5px] font-medium text-subtle cursor-pointer transition-colors hover:bg-sidebar disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:border-white/10 dark:text-muted-foreground dark:hover:bg-white/5";
 
@@ -329,7 +323,7 @@ export function DataTable<T>({
 		columns.map((column, index) => (
 			<div
 				key={column.key}
-				className={`${cellClass(column)}${column.pinEnd ? ` ${PINNED_CELL_CLASS}` : ""}`}
+				className={cellClass(column)}
 				style={index === 0 ? { paddingLeft: `${depth * 20}px` } : undefined}
 			>
 				{column.cell(row)}
@@ -468,7 +462,7 @@ export function DataTable<T>({
 				className={`${tableGutterClass} rounded-[10px] border border-border bg-card dark:border-white/10 ${
 					scrollBody
 						? "relative min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-						: "relative overflow-clip"
+						: "relative overflow-hidden"
 				}`}
 			>
 				{showSkeleton ? (

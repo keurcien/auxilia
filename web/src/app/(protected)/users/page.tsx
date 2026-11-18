@@ -911,12 +911,11 @@ export default function UsersPage() {
 		{
 			key: "actions",
 			header: "",
-			width: "36px",
-			pinEnd: true,
+			width: "44px",
 			cell: (user) => {
 				const isCurrentUser = user.id === currentUser?.id;
 				return (
-					<div className="flex justify-center">
+					<div className="flex justify-start">
 						{isOwner &&
 							!isCurrentUser &&
 							(user.memberships?.length ?? 0) > 0 && (
@@ -1117,7 +1116,7 @@ export default function UsersPage() {
 						rowKey={(user) => user.id}
 						isLoading={isLoading}
 						minTableWidth={`${
-							(isOwner ? (isAdmin ? 1250 : 1120) : isAdmin ? 1180 : 1050) +
+							(isOwner ? (isAdmin ? 1258 : 1128) : isAdmin ? 1188 : 1058) +
 							(canSeeUsage ? 130 : 0)
 						}px`}
 						bleedOnNarrow
