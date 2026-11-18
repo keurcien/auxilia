@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.156](https://github.com/jr-k/auxilia/compare/web-v0.12.155...web-v0.12.156) (2026-11-18)
+
+
+### Bug Fixes
+
+* **web:** trailing actions column and compact user cards ([#319](https://github.com/jr-k/auxilia/issues/319)) ([13041d9](https://github.com/jr-k/auxilia/commit/13041d99cd0e06284fa7ccb084a2af73bd4b3393))
+
 ## [0.12.155](https://github.com/jr-k/auxilia/compare/web-v0.12.154...web-v0.12.155) (2026-11-18)
 
 
