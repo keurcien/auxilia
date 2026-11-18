@@ -786,11 +786,44 @@ export default function UsersPage() {
 		);
 	};
 
+	const renderRowActions = (user: ListedUser) => {
+		if (user.id === currentUser?.id) return null;
+		if (isOwner && (user.memberships?.length ?? 0) > 0) {
+			return (
+				<DropdownMenu
+					trigger={
+						<button
+							type="button"
+							aria-label={`Actions for ${user.name || user.email || "user"}`}
+							className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover dark:hover:bg-white/10"
+						>
+							<MoreVertical className="size-[16px]" />
+						</button>
+					}
+					items={supervisionItems(user)}
+				/>
+			);
+		}
+		if (!isOwner && isAdmin) {
+			return (
+				<button
+					type="button"
+					aria-label={`Remove ${user.name || user.email || "user"}`}
+					className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-ghost opacity-100 transition-all hover:bg-[#FBEFED] hover:text-[#B04A3A] md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-rose-950"
+					onClick={() => { void handleRemoveUser(user.id, user.name); }}
+				>
+					<X className="size-[15px]" />
+				</button>
+			);
+		}
+		return null;
+	};
+
 	const columns: DataTableColumn<ListedUser>[] = [
 		{
 			key: "name",
 			header: "Name",
-			width: "minmax(220px, 1.4fr)",
+			width: "minmax(150px, 1.5fr)",
 			cell: (user) => {
 				const isCurrentUser = user.id === currentUser?.id;
 				return (
@@ -802,7 +835,7 @@ export default function UsersPage() {
 							imageRevision={user.imageRevision}
 							className="shrink-0"
 						/>
-						<div className="min-w-0">
+						<div className="min-w-0 flex-1">
 							<div className="flex min-w-0 items-center gap-2">
 								<span className="truncate text-[13.5px] font-semibold text-foreground">
 									{user.name || "Unnamed"}
@@ -821,7 +854,7 @@ export default function UsersPage() {
 		{
 			key: "email",
 			header: "Email",
-			width: "230px",
+			width: "minmax(130px, 1fr)",
 			cell: (user) => (
 				<span className="block truncate font-mono text-[11.5px] text-subtle dark:text-muted-foreground">
 					{user.email}
@@ -833,7 +866,7 @@ export default function UsersPage() {
 					{
 						key: "last-prompt",
 						header: "Last prompt",
-						width: "130px",
+						width: "100px",
 						cell: renderPromptActivity,
 					},
 				]
@@ -843,7 +876,7 @@ export default function UsersPage() {
 					{
 						key: "usage",
 						header: "This month",
-						width: "130px",
+						width: "90px",
 						cell: (user: ListedUser) => (
 							<UsageBadge
 								dimension="user"
@@ -860,7 +893,7 @@ export default function UsersPage() {
 					{
 						key: "workspaces",
 						header: "Workspaces",
-						width: "110px",
+						width: "80px",
 						align: "center" as const,
 						cell: (user: ListedUser) => (
 							<button
@@ -880,21 +913,21 @@ export default function UsersPage() {
 		{
 			key: "role",
 			header: "Role",
-			width: "130px",
+			width: "110px",
 			mobileWidth: "auto",
 			cell: renderRoleControl,
 		},
 		{
 			key: "can-create-workspace",
 			header: "Create workspaces",
-			width: "150px",
+			width: "115px",
 			mobileWidth: "auto",
 			cell: renderWorkspaceCreationControl,
 		},
 		{
 			key: "can-delete-threads",
 			header: "Delete conversations",
-			width: "165px",
+			width: "125px",
 			mobileWidth: "auto",
 			cell: renderThreadDeletionControl,
 		},
@@ -903,7 +936,7 @@ export default function UsersPage() {
 					{
 						key: "team",
 						header: "Team",
-						width: "160px",
+						width: "150px",
 						cell: renderTeamControl,
 					},
 				]
@@ -912,41 +945,21 @@ export default function UsersPage() {
 			key: "actions",
 			header: "",
 			width: "44px",
-			cell: (user) => {
-				const isCurrentUser = user.id === currentUser?.id;
-				return (
-					<div className="flex justify-start">
-						{isOwner &&
-							!isCurrentUser &&
-							(user.memberships?.length ?? 0) > 0 && (
-							<DropdownMenu
-								trigger={
-									<button
-										type="button"
-										aria-label={`Actions for ${user.name || user.email || "user"}`}
-										className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta transition-colors hover:bg-hover dark:hover:bg-white/10"
-									>
-										<MoreVertical className="size-[16px]" />
-									</button>
-								}
-								items={supervisionItems(user)}
-							/>
-						)}
-						{!isOwner && isAdmin && !isCurrentUser && (
-							<button
-								type="button"
-								aria-label={`Remove ${user.name || user.email || "user"}`}
-								className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-ghost opacity-100 transition-all hover:bg-[#FBEFED] hover:text-[#B04A3A] md:opacity-0 md:group-hover:opacity-100 dark:hover:bg-rose-950"
-								onClick={() => { void handleRemoveUser(user.id, user.name); }}
-							>
-								<X className="size-[15px]" />
-							</button>
-						)}
-					</div>
-				);
-			},
+			cell: (user) => (
+				<div className="flex justify-end pr-2">{renderRowActions(user)}</div>
+			),
 		},
 	];
+	// Sum of each column's minimum track plus DataTable's row padding
+	// (px-[18px]) and column gaps (gap-4), so the last column is never clipped.
+	const tableMinWidth =
+		36 +
+		16 * (columns.length - 1) +
+		columns.reduce(
+			(sum, column) =>
+				sum + Number.parseInt(column.width?.match(/\d+/)?.[0] ?? "0", 10),
+			0,
+		);
 
 	return (
 		<WorkspacePage
@@ -1115,10 +1128,7 @@ export default function UsersPage() {
 						rows={users}
 						rowKey={(user) => user.id}
 						isLoading={isLoading}
-						minTableWidth={`${
-							(isOwner ? (isAdmin ? 1258 : 1128) : isAdmin ? 1188 : 1058) +
-							(canSeeUsage ? 130 : 0)
-						}px`}
+						minTableWidth={`${tableMinWidth}px`}
 						bleedOnNarrow
 						emptyMessage={
 							debouncedSearch || roleFilter !== "all" || teamFilterId
@@ -1136,11 +1146,11 @@ export default function UsersPage() {
 						}}
 					/>
 				) : isLoading && users.length === 0 ? (
-					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+					<div className="grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-3">
 						{Array.from({ length: 6 }, (_, index) => (
 							<div
 								key={index}
-								className="h-[220px] animate-pulse rounded-xl border border-border bg-card dark:border-white/10"
+								className="h-[190px] animate-pulse rounded-xl border border-border bg-card dark:border-white/10"
 							/>
 						))}
 					</div>
@@ -1155,7 +1165,7 @@ export default function UsersPage() {
 				) : (
 					<>
 						<div
-							className={`grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-2 xl:grid-cols-3 ${
+							className={`grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-3 transition-opacity ${
 								isLoading ? "opacity-60" : ""
 							}`}
 						>
@@ -1164,7 +1174,7 @@ export default function UsersPage() {
 								return (
 									<article
 										key={user.id}
-										className="group flex min-h-[220px] flex-col rounded-xl border border-[#e1ebe6] bg-card p-4 transition-[border-color,box-shadow] hover:border-[#cfe0d8] hover:shadow-[0_3px_10px_rgba(30,45,40,0.06)] dark:border-white/10 dark:hover:border-white/20"
+										className="group flex min-h-[190px] flex-col rounded-xl border border-[#e1ebe6] bg-card p-4 transition-[border-color,box-shadow] hover:border-[#cfe0d8] hover:shadow-[0_3px_10px_rgba(30,45,40,0.06)] dark:border-white/10 dark:hover:border-white/20"
 									>
 										<div className="flex min-w-0 items-start gap-3">
 											<UserAvatar
@@ -1218,39 +1228,34 @@ export default function UsersPage() {
 												</button>
 											)}
 										</div>
-										<div className="mt-5 grid grid-cols-2 gap-x-3 gap-y-4">
-											{isOwner ? (
-												<div className="col-span-2 min-w-0">
-													<p className="mb-1.5 text-[10px] font-semibold text-meta">
-														Role
-													</p>
-													{renderRoleControl(user)}
-												</div>
-											) : (
-												<>
-													<div className="min-w-0">
-														<p className="mb-1.5 text-[10px] font-semibold text-meta">
-															Role
-														</p>
-														{renderRoleControl(user)}
-													</div>
-													<div className="min-w-0">
-														<p className="mb-1.5 text-[10px] font-semibold text-meta">
-															Team
-														</p>
-														{renderTeamControl(user)}
-													</div>
-												</>
-											)}
+										<div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-4">
+											<div className="min-w-0">
+												<p className="mb-1.5 text-[10px] font-semibold text-meta">
+													Role
+												</p>
+												{renderRoleControl(user)}
+											</div>
 											{isAdmin && (
-												<div className="col-span-2 min-w-0">
+												<div className="min-w-0">
 													<p className="mb-1.5 text-[10px] font-semibold text-meta">
 														Last prompt
 													</p>
-													{renderPromptActivity(user)}
+													<div className="flex min-h-[28px] items-center">
+														{renderPromptActivity(user)}
+													</div>
 												</div>
 											)}
-											<div className="col-span-2 mt-auto grid grid-cols-2 gap-3 border-t border-hairline pt-3 dark:border-white/5">
+											{!isOwner && (
+												<div className="min-w-0">
+													<p className="mb-1.5 text-[10px] font-semibold text-meta">
+														Team
+													</p>
+													{renderTeamControl(user)}
+												</div>
+											)}
+										</div>
+										<div className="mt-auto pt-4">
+											<div className="grid grid-cols-2 gap-3 border-t border-hairline pt-3 dark:border-white/5">
 												<div>
 													<p className="mb-1.5 text-[10px] font-semibold text-meta">
 														Create workspaces
