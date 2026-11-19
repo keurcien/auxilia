@@ -77,6 +77,7 @@ class ResolvedModel(BaseModel):
     minimal_reasoning_effort: str | None = None
     supports_web_search: bool = False
     supports_tool_search: bool = False
+    context_window: int | None = None
 
 
 def _managed(entry: SupportedModel | None, row: ModelDB) -> ManagedModelResponse:
@@ -269,6 +270,7 @@ class ModelService(BaseService[ModelDB, ModelRepository]):
             ),
             supports_web_search=bool(entry.supports_web_search),
             supports_tool_search=entry.supports_tool_search,
+            context_window=entry.context_window,
         )
 
     @staticmethod

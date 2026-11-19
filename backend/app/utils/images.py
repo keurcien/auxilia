@@ -130,9 +130,7 @@ def _process_notification_badge(raw: bytes) -> ProcessedImage:
                 )
                 red, green, blue = difference.split()
                 alpha = ImageChops.lighter(ImageChops.lighter(red, green), blue)
-                alpha = alpha.point(
-                    lambda value: min(255, max(0, (value - 8) * 3))
-                )
+                alpha = alpha.point(lambda value: min(255, max(0, (value - 8) * 3)))
                 if alpha.getextrema()[1] == 0:
                     raise DomainValidationError(
                         "Notification badge must contain a visible icon"

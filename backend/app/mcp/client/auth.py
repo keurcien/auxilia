@@ -249,8 +249,22 @@ def refresh_failure_is_transient(status_code: int) -> bool:
     non-standard — is treated as a rejection of the token, since re-POSTing
     a credential the AS will never accept is the retry storm this guards
     against. Only consulted for non-2xx: ``ensure_valid_token`` handles every
-    2xx as a success first."""
+    2xx without an ``error`` body as a success first."""
     return status_code == 429 or 500 <= status_code < 600
+
+
+def oauth_error_in_body(response: httpx2.Response) -> str | None:
+    """The RFC 6749 §5.2 ``error`` code of a 2xx token response, if any.
+
+    GitHub answers a rejected refresh (``bad_refresh_token``) with HTTP 200
+    and the error in the body, so a 2xx alone does not mean the AS accepted
+    the refresh."""
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    error = body.get("error") if isinstance(body, dict) else None
+    return error if isinstance(error, str) and error else None
 
 
 def strip_client_id_for_basic_auth(request: httpx2.Request) -> httpx2.Request:
@@ -603,7 +617,8 @@ class WebOAuthClientProvider(OAuthClientProvider):
             request.headers.setdefault("User-Agent", OAUTH_USER_AGENT)
             async with httpx2.AsyncClient() as client:
                 response = await client.send(request)
-            if response.is_success:
+            body_error = oauth_error_in_body(response) if response.is_success else None
+            if response.is_success and body_error is None:
                 # Any 2xx is the AS accepting the refresh (RFC 6749 §5.1 says
                 # 200; 201 is seen in the wild). An unexpected 2xx shape that
                 # `_handle_token_response` cannot parse raises into the
@@ -612,7 +627,9 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 # response omits forward (RFC 6749 §6).
                 await self._handle_token_response(response)
                 return True
-            if refresh_failure_is_transient(response.status_code):
+            if body_error is None and refresh_failure_is_transient(
+                response.status_code
+            ):
                 # The AS is throttling or down; the credential may well be
                 # fine. Keep it and try again on the next check.
                 logger.warning(
@@ -636,7 +653,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 deleted = True
             logger.warning(
                 "OAuth refresh rejected (%s) for %s — %s",
-                response.status_code,
+                body_error or response.status_code,
                 self.context.server_url,
                 "cleared rejected credentials"
                 if deleted
@@ -656,8 +673,11 @@ class WebOAuthClientProvider(OAuthClientProvider):
         return strip_client_id_for_basic_auth(request)
 
     async def _refresh_token(self) -> httpx2.Request:
-        request = await super()._refresh_token()
-        return strip_client_id_for_basic_auth(request)
+        request = strip_client_id_for_basic_auth(await super()._refresh_token())
+        # GitHub answers form-encoded unless JSON is asked for, and the SDK
+        # only parses JSON.
+        request.headers["Accept"] = "application/json"
+        return request
 
     def _negotiate_registration_auth_method(self) -> None:
         """Align the requested ``token_endpoint_auth_method`` with what the

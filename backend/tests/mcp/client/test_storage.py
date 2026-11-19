@@ -140,9 +140,7 @@ async def test_list_connected_server_ids_is_scoped_to_user_and_workspace():
         f"mcp:{TEST_WORKSPACE_ID}:u1:s5:authprobe": "1",
     }
 
-    server_ids = await factory.list_connected_server_ids(
-        str(TEST_WORKSPACE_ID), "u1"
-    )
+    server_ids = await factory.list_connected_server_ids(str(TEST_WORKSPACE_ID), "u1")
 
     assert sorted(server_ids) == ["s1", "s2"]
 

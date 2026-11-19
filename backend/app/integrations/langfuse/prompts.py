@@ -34,7 +34,9 @@ def _to_version(prompt: object) -> LangfusePromptVersion:
         text=prompt.prompt,
         author=config.get(AUTHOR_KEY) or (created_by if created_by != "API" else None),
         created_at=extra.get("createdAt"),
-        public_config={key: value for key, value in config.items() if key != AUTHOR_KEY},
+        public_config={
+            key: value for key, value in config.items() if key != AUTHOR_KEY
+        },
     )
 
 
@@ -83,12 +85,7 @@ async def list_labels(client: Langfuse, name: str) -> list[str]:
         page = await client.async_api.prompts.list(name=name)
     except ApiError as err:
         raise _failed(err) from err
-    labels = {
-        label
-        for item in page.data
-        if item.name == name
-        for label in item.labels
-    }
+    labels = {label for item in page.data if item.name == name for label in item.labels}
     return sorted(labels - {"latest"})
 
 

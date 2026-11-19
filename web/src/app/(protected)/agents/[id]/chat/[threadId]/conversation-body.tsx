@@ -71,6 +71,7 @@ import {
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useAgentsStore } from "@/stores/agents-store";
 import * as agentsApi from "@/lib/api/resources/agents";
+import { describeRunError } from "@/lib/run-errors";
 import type { HitlDecision, HitlResponse } from "@/hooks/use-hitl-approvals";
 import type { AgentResourceSandbox } from "@/types/agents";
 import type { QueuedPrompt, Run } from "@/types/runs";
@@ -436,7 +437,9 @@ export const ConversationBody = memo(function ConversationBody({
             </p>
           )}
           {currentErrorDetail && (
-            <p className="text-xs text-destructive">{currentErrorDetail}</p>
+            <p className="text-xs text-destructive">
+              {describeRunError(currentErrorDetail).detail}
+            </p>
           )}
           {!readOnly && (emptyPrompt || canRetryInitial) && (
             <button
@@ -932,15 +935,20 @@ const UserTurn = ({
           className="ml-auto w-full max-w-[82%] rounded-lg border border-border/50 bg-muted/30 p-4"
         />
       )}
-      {error != null && (
-        <Error>
-          <ErrorContent>An error occurred.</ErrorContent>
-          <ErrorDetails>
-            <div>{error}</div>
-          </ErrorDetails>
-        </Error>
-      )}
+      {error != null && <RunError error={error} />}
     </div>
+  );
+};
+
+const RunError = ({ error }: { error: string }) => {
+  const { title, detail, known } = describeRunError(error);
+  return (
+    <Error className={known ? "break-words" : undefined}>
+      <ErrorContent>{title}</ErrorContent>
+      <ErrorDetails>
+        <div>{detail}</div>
+      </ErrorDetails>
+    </Error>
   );
 };
 

@@ -29,6 +29,7 @@ from app.mcp.client.exceptions import as_oauth_required
 from app.runtime.agent import Agent
 from app.runtime.checkpoints import checkpoint_thread_id
 from app.runtime.hitl import pending_interrupt
+from app.runtime.model_errors import describe_model_error
 from app.runtime.protocol.wire import encode_event
 from app.runtime.runs.control import RunControl
 from app.runtime.runs.delivery import DeliveryFactory, RuntimeToolFactory
@@ -89,7 +90,8 @@ class RunWorker:
             status, error = await self._execute(record, events, cancel_watch)
         except Exception as exc:
             logger.exception("Run %s failed", record.id)
-            status, error = RunStatus.error, str(root_cause(exc))
+            cause = root_cause(exc)
+            status, error = RunStatus.error, describe_model_error(cause) or str(cause)
         finally:
             await _cancel(heartbeat)
             await _cancel(cancel_watch)
@@ -198,7 +200,10 @@ class RunWorker:
                 str(cause) or type(cause).__name__,
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
-            return RunStatus.error, str(cause) or type(cause).__name__
+            return (
+                RunStatus.error,
+                describe_model_error(cause) or str(cause) or type(cause).__name__,
+            )
         if await self._is_interrupted(record.workspace_id, record.thread_id):
             return RunStatus.interrupted, None
         return RunStatus.success, None

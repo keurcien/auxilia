@@ -10,6 +10,8 @@ export interface Model {
 	// Whether the model accepts non-text input — gates composer attachments
 	// per model (not per chef: GLM 5.3 Flash takes images, plain 5.3 doesn't).
 	multimodal: boolean;
+	// Maximum input tokens, null when the catalog doesn't know it.
+	contextWindow: number | null;
 	// Reasoning-effort values the user may pick for this model (empty = no
 	// effort knob, render no picker) and the level in effect when they pick
 	// nothing (null = provider-managed/dynamic, shown as Auto).

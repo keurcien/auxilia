@@ -12,6 +12,8 @@
 #                                strict tool call) on the endpoint we call,
 #                                NOT best-effort json_object
 #   supports_tool_search: provider-native deferred tool discovery
+#   context_window             — maximum input tokens the endpoint accepts
+#                                (optional; feeds the composer's context gauge)
 #
 # reasoning_effort_levels / reasoning_effort_default — the effort values a
 # user may pick for this model, drawn from the canonical ladder
@@ -40,6 +42,7 @@ models:
   # All native OpenAI models use Responses to support tools with reasoning.
   - provider: openai
     model_id: gpt-4o-mini
+    context_window: 128000
     display_name: GPT-4o mini
     prices:
       input: "1.5e-7"
@@ -51,6 +54,7 @@ models:
     supports_structured_output: true
   - provider: openai
     model_id: gpt-5
+    context_window: 272000
     display_name: GPT-5
     prices:
       input: "1.25e-6"
@@ -63,6 +67,7 @@ models:
     reasoning_effort_levels: [minimal, low, medium, high]
   - provider: openai
     model_id: gpt-5-mini
+    context_window: 272000
     display_name: GPT-5 mini
     prices:
       input: "2.5e-7"
@@ -75,6 +80,7 @@ models:
     reasoning_effort_levels: [minimal, low, medium, high]
   - provider: openai
     model_id: gpt-5-nano
+    context_window: 272000
     display_name: GPT-5 nano
     prices:
       input: "5e-8"
@@ -87,6 +93,7 @@ models:
     reasoning_effort_levels: [minimal, low, medium, high]
   - provider: openai
     model_id: gpt-5.1
+    context_window: 272000
     display_name: GPT-5.1
     prices:
       input: "1.25e-6"
@@ -99,6 +106,7 @@ models:
     reasoning_effort_levels: [none, low, medium, high]
   - provider: openai
     model_id: gpt-5.2
+    context_window: 272000
     display_name: GPT-5.2
     prices:
       input: "1.75e-6"
@@ -111,6 +119,7 @@ models:
     reasoning_effort_levels: [none, low, medium, high, xhigh]
   - provider: openai
     model_id: gpt-5.4
+    context_window: 1050000
     display_name: GPT-5.4
     # <=272K-input tier; above it 2x input.
     prices:
@@ -124,6 +133,7 @@ models:
     reasoning_effort_levels: [none, low, medium, high, xhigh]
   - provider: openai
     model_id: gpt-5.5
+    context_window: 1050000
     display_name: GPT-5.5
     # <=272K-input tier; above it 2x input.
     prices:
@@ -139,6 +149,7 @@ models:
     reasoning_effort_default: medium
   - provider: openai
     model_id: gpt-5.6-luna
+    context_window: 1050000
     display_name: GPT-5.6 Luna
     # <=272K-input tier.
     prices:
@@ -154,6 +165,7 @@ models:
     reasoning_effort_default: medium
   - provider: openai
     model_id: gpt-5.6-sol
+    context_window: 1050000
     display_name: GPT-5.6 Sol
     # <=272K-input tier; promotional price through at least 2026-11-21.
     prices:
@@ -169,6 +181,7 @@ models:
     reasoning_effort_default: medium
   - provider: openai
     model_id: gpt-5.6-terra
+    context_window: 1050000
     display_name: GPT-5.6 Terra
     # <=272K-input tier.
     prices:
@@ -260,6 +273,7 @@ models:
   # --- Anthropic (native endpoint) ---
   - provider: anthropic
     model_id: claude-haiku-4-5
+    context_window: 200000
     display_name: Claude Haiku 4.5
     prices:
       input: "1e-6"
@@ -289,6 +303,7 @@ models:
     reasoning_effort_default: medium
   - provider: anthropic
     model_id: claude-sonnet-4-6
+    context_window: 1000000
     display_name: Claude Sonnet 4.6
     prices:
       input: "3e-6"
@@ -303,6 +318,7 @@ models:
     reasoning_effort_levels: [low, medium, high, max]
   - provider: anthropic
     model_id: claude-sonnet-5
+    context_window: 1000000
     display_name: Claude Sonnet 5
     prices:
       input: "2e-6"
@@ -321,6 +337,7 @@ models:
     reasoning_effort_default: medium
   - provider: anthropic
     model_id: claude-sonnet-5-5
+    context_window: 1000000
     display_name: Claude Sonnet 5.5
     prices:
       input: "2e-6"
@@ -336,6 +353,7 @@ models:
     reasoning_effort_default: medium
   - provider: anthropic
     model_id: claude-opus-4-6
+    context_window: 1000000
     display_name: Claude Opus 4.6
     prices:
       input: "5e-6"
@@ -351,6 +369,7 @@ models:
     reasoning_effort_default: medium
   - provider: anthropic
     model_id: claude-opus-4-8
+    context_window: 1000000
     display_name: Claude Opus 4.8
     prices:
       input: "5e-6"
@@ -372,6 +391,7 @@ models:
   # Claudes we serve.
   - provider: anthropic
     model_id: claude-opus-5
+    context_window: 1000000
     display_name: Claude Opus 5
     prices:
       input: "5e-6"
@@ -387,6 +407,7 @@ models:
     reasoning_effort_default: medium
   - provider: anthropic
     model_id: claude-opus-5-5
+    context_window: 1000000
     display_name: Claude Opus 5.5
     prices:
       input: "4e-6"
@@ -402,6 +423,7 @@ models:
     reasoning_effort_default: medium
   - provider: anthropic
     model_id: claude-fable-5-1
+    context_window: 1000000
     display_name: Claude Fable 5.1
     prices:
       input: "1e-5"
@@ -421,6 +443,7 @@ models:
   # DeepSeek V4.1 Flash.
   - provider: deepseek
     model_id: deepseek-v4-flash
+    context_window: 1000000
     display_name: DeepSeek V4 Flash
     # Retired alias billed at Flash peak rate (off-peak is half).
     prices:
@@ -463,6 +486,7 @@ models:
     reasoning_effort_default: none
   - provider: deepseek
     model_id: deepseek-v4-pro
+    context_window: 1000000
     display_name: DeepSeek V4 Pro
     # Peak rate (off-peak is half).
     prices:
@@ -479,6 +503,7 @@ models:
   # --- Google (native endpoint) ---
   - provider: google
     model_id: gemini-3-flash-preview
+    context_window: 1048576
     display_name: Gemini 3 Flash (preview)
     prices:
       input: "5e-7"
@@ -491,6 +516,7 @@ models:
     reasoning_effort_levels: [minimal, low, medium, high]
   - provider: google
     model_id: gemini-3.1-pro-preview
+    context_window: 1048576
     display_name: Gemini 3.1 Pro (preview)
     # <=200K-prompt tier; higher prompts use the provider's higher tier.
     prices:
@@ -507,6 +533,7 @@ models:
   # no generateContent → can't back an agent). Function calling tested live.
   - provider: google
     model_id: gemini-3.5-flash
+    context_window: 1048576
     display_name: Gemini 3.5 Flash
     # Routed to 3.6 Flash; promotional price through 2026-12-31.
     prices:
@@ -520,6 +547,7 @@ models:
     reasoning_effort_levels: [minimal, low, medium, high]
   - provider: google
     model_id: gemini-3.5-flash-lite
+    context_window: 1048576
     display_name: Gemini 3.5 Flash-Lite
     prices:
       input: "3e-7"
@@ -538,6 +566,7 @@ models:
   # declaring it keeps unset threads on the documented behavior.
   - provider: google
     model_id: gemini-3.6-flash
+    context_window: 1048576
     display_name: Gemini 3.6 Flash
     # Promotional price through 2026-12-31.
     prices:
@@ -552,6 +581,7 @@ models:
     reasoning_effort_default: medium
   - provider: google
     model_id: gemini-3.7-flash
+    context_window: 1048576
     display_name: Gemini 3.7 Flash
     # Routed to 3.8 Flash; promotional price through 2026-12-31.
     prices:

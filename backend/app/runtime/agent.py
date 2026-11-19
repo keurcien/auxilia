@@ -70,6 +70,7 @@ from app.runtime.harness import (
     harness_trailing_middleware,
 )
 from app.runtime.hitl import address_input_requested, next_elicitation_rounds
+from app.runtime.middleware.context_footprint import ContextFootprintMiddleware
 from app.runtime.middleware.current_date import CurrentDateMiddleware
 from app.runtime.middleware.incomplete_response import IncompleteResponseMiddleware
 from app.runtime.middleware.mcp_content import MCPContentCompatibilityMiddleware
@@ -451,6 +452,9 @@ def build_runnable(
     if output_schema is not None:
         middleware.append(DeferredStructuredOutputMiddleware(format_mode))
     middleware.append(ToolErrorMiddleware())
+    # Inside everything that changes the request's content, so it measures
+    # the request as sent; prompt caching only adds cache markers.
+    middleware.append(ContextFootprintMiddleware(searchable_tools))
     if sandbox_backend is not None:
         middleware += harness_trailing_middleware(model)
     else:
@@ -971,6 +975,7 @@ class Agent:
             resolved.api_key,
             reasoning_effort=reasoning_effort,
             base_url=resolved.base_url,
+            context_window=resolved.context_window,
         )
         # The lazy MCP router is one tiny call per prompt. It runs on the
         # workspace quick model when an admin flagged one; otherwise on the

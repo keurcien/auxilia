@@ -230,9 +230,7 @@ async def test_manual_oauth_callback_accepts_exact_loopback_url(
     )
     mock_repo.get_scoped.return_value = server
 
-    async def exchange(
-        code, state, *, verifier, consume_state, expected_generation
-    ):
+    async def exchange(code, state, *, verifier, consume_state, expected_generation):
         assert code == "authorization-code"
         assert state == "state-123"
         assert verifier == "verifier-secret"

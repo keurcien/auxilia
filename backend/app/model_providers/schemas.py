@@ -63,6 +63,8 @@ class ModelResponse(BaseModel):
     # composer gates attachments on this (per model, not per chef: e.g. GLM
     # 5.3 Flash takes images while plain GLM 5.3 does not).
     multimodal: bool = False
+    # Maximum input tokens, None when the catalog doesn't know it.
+    contextWindow: int | None = None
     # The reasoning-effort values the user may pick for this model (empty =
     # no effort knob) and the level in effect when they pick nothing (None =
     # provider-managed/dynamic, shown as Auto).

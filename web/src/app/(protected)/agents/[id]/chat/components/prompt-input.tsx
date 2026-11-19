@@ -59,6 +59,11 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
 import { SearchBar } from "@/components/ui/search-bar";
 import { getApiErrorMessage, toApiError } from "@/lib/api/errors";
 import * as agentsApi from "@/lib/api/resources/agents";
@@ -69,6 +74,12 @@ import type {
 	ThreadToolMode,
 } from "@/types/threads";
 import { PromptQueue } from "./prompt-queue";
+import {
+	ContextRing,
+	ContextUsagePanel,
+	contextGaugeLabel,
+	contextUsage,
+} from "./context-gauge";
 
 // Petrol Mono composer pills: 34px tall, 999px radius, on the hover tint.
 const composerPillClass = cn(
@@ -417,6 +428,48 @@ const ChatPromptInput = ({
 			calls,
 		};
 	}, [conversationMessages, statsMessages]);
+
+	// Streamed messages carry no response metadata, so the footprint of a run
+	// is read back from the durable state once the run ends.
+	const [settledMessages, setSettledMessages] = useState<{
+		key: string;
+		messages: BaseMessage[];
+	} | null>(null);
+	const previousStatusRef = useRef(status);
+	useEffect(() => {
+		const previous = previousStatusRef.current;
+		previousStatusRef.current = status;
+		if (
+			!loadLatestConversationMessages ||
+			(status !== "ready" && status !== "error") ||
+			(previous !== "streaming" && previous !== "submitted")
+		) {
+			return;
+		}
+		let cancelled = false;
+		const key = draftKey;
+		void loadLatestConversationMessages()
+			.then((messages) => {
+				if (!cancelled) setSettledMessages({ key, messages });
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	}, [draftKey, loadLatestConversationMessages, status]);
+	const contextWindowUsage = useMemo(() => {
+		const contextWindow = selectedModelData?.contextWindow;
+		return (
+			(settledMessages?.key === draftKey
+				? contextUsage(settledMessages.messages, contextWindow)
+				: null) ?? contextUsage(conversationMessages, contextWindow)
+		);
+	}, [
+		conversationMessages,
+		draftKey,
+		selectedModelData?.contextWindow,
+		settledMessages,
+	]);
 
 	const handleStatsDialogOpenChange = (open: boolean) => {
 		setStatsDialogOpen(open);
@@ -1237,6 +1290,47 @@ const ChatPromptInput = ({
 									)}
 								</DialogContent>
 							</Dialog>
+						)}
+						{contextWindowUsage && (
+							<Popover>
+								<PopoverTrigger asChild>
+									<PromptInputButton
+										aria-label="Context window usage"
+										title="Context window usage"
+										className={cn(
+											composerPillClass,
+											"cursor-pointer px-2.5 text-subtle dark:text-panel-body",
+											mobileOptionRowClass,
+											"max-md:order-6",
+										)}
+									>
+										<ContextRing percent={contextWindowUsage.percent} />
+										<MobileOptionLabel>Context</MobileOptionLabel>
+										<span
+											className={cn(
+												mobileOptionValueClass,
+												"font-mono text-[12px]",
+											)}
+										>
+											{contextGaugeLabel(contextWindowUsage)}
+										</span>
+									</PromptInputButton>
+								</PopoverTrigger>
+								<PopoverContent align="start" side="top">
+									<ContextUsagePanel
+										usage={contextWindowUsage}
+										modelName={selectedModelData?.name}
+										effortLabel={
+											effortLevels.length > 0 ? effortPillLabel : undefined
+										}
+										toolModeLabel={
+											effectiveThreadToolMode
+												? THREAD_TOOL_MODE_LABELS[effectiveThreadToolMode]
+												: undefined
+										}
+									/>
+								</PopoverContent>
+							</Popover>
 						)}
 						<ConnectButton
 							needsAttention={

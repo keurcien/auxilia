@@ -12,7 +12,7 @@ from typing import Literal, get_args
 
 import httpx
 import yaml
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.exceptions import DomainValidationError
 from app.model_providers.pricing import TokenPrices
@@ -122,6 +122,10 @@ class SupportedModel(BaseModel):
     chef: str | None = None
     chef_slug: str | None = None
     multimodal: bool = False
+    # Maximum input tokens the serving endpoint accepts. None = unknown: the
+    # runtime falls back to the langchain model profile, and the composer's
+    # context gauge shows absolute counts without a percentage.
+    context_window: int | None = Field(default=None, gt=0)
     supports_structured_output: bool = False
     supports_tools: bool = True
     is_available: bool = True

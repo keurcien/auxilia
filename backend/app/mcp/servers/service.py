@@ -831,9 +831,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         if self.workspace_id is None:
             raise RuntimeError("workspace_id is required")
 
-        reference = MCPConnectionReference(
-            server_id=server_id, server_name=server_name
-        )
+        reference = MCPConnectionReference(server_id=server_id, server_name=server_name)
         storage = factory.get_storage(
             str(self.workspace_id), str(user_id), str(server_id)
         )
@@ -929,9 +927,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
     ) -> MCPConnectionDisconnectSummary:
         """Disconnect only the authenticated user's account for one server."""
         server = await self.get_visible(server_id, user)
-        reference = MCPConnectionReference(
-            server_id=server.id, server_name=server.name
-        )
+        reference = MCPConnectionReference(server_id=server.id, server_name=server.name)
         if server.auth_type != MCPAuthType.oauth2:
             return MCPConnectionDisconnectSummary(unaffected_shared=[reference])
         return await self._disconnect_personal_connection(
@@ -977,9 +973,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
 
         summary = MCPConnectionDisconnectSummary(
             unaffected_shared=[
-                MCPConnectionReference(
-                    server_id=server.id, server_name=server.name
-                )
+                MCPConnectionReference(server_id=server.id, server_name=server.name)
                 for server in visible
                 if server.auth_type != MCPAuthType.oauth2
             ]
@@ -1014,12 +1008,8 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
                         user.id,
                         server_id,
                     )
-            is_auxilia = (
-                matches_current_client
-                or (
-                    row is not None
-                    and row.url.rstrip("/") == resource_url().rstrip("/")
-                )
+            is_auxilia = matches_current_client or (
+                row is not None and row.url.rstrip("/") == resource_url().rstrip("/")
             )
             candidates.append((server_id, name, is_auxilia))
 

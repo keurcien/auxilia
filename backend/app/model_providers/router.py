@@ -111,6 +111,7 @@ async def get_models(
             providers=[ModelProviderType(m.provider)],
             isDefault=m.model_id == default_model_id,
             multimodal=m.multimodal,
+            contextWindow=m.context_window,
             reasoningEffortLevels=list(m.reasoning_effort_levels),
             reasoningEffortDefault=m.reasoning_effort_default,
         )

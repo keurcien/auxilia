@@ -105,9 +105,7 @@ async def upload_notification_badge(
     _: UserDB = Depends(require_admin),
     service: InstanceAppearanceService = Depends(get_instance_appearance_service),
 ) -> InstanceAppearanceResponse:
-    return await service.set_notification_badge(
-        await process_notification_badge(image)
-    )
+    return await service.set_notification_badge(await process_notification_badge(image))
 
 
 @router.delete("/notification-badge", response_model=InstanceAppearanceResponse)

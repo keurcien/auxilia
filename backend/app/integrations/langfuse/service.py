@@ -127,9 +127,7 @@ def _validate_config_urls(config: dict) -> None:
 
 
 def _public_config(config: dict) -> dict:
-    return {
-        key: value for key, value in config.items() if key != prompts.AUTHOR_KEY
-    }
+    return {key: value for key, value in config.items() if key != prompts.AUTHOR_KEY}
 
 
 def _parse_config(text: str) -> dict:

@@ -102,9 +102,7 @@ class InstanceAppearanceService(
     async def get_notification_badge(self) -> InstanceAppearanceDB | None:
         row = await self.repository.get_settings()
         return (
-            row
-            if row is not None and row.notification_badge_data is not None
-            else None
+            row if row is not None and row.notification_badge_data is not None else None
         )
 
 
