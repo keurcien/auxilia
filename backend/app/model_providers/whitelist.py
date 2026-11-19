@@ -63,6 +63,8 @@ KNOWN_REASONING_EFFORT_LEVELS: dict[str, frozenset[ReasoningEffort]] = {
     "gpt-6.1-sol": frozenset({"low", "medium", "high", "xhigh", "max"}),
     "gpt-6.1-terra": frozenset({"none", "low", "medium", "high", "xhigh", "max"}),
     "gpt-6-astra": frozenset({"low", "medium", "high", "xhigh", "max"}),
+    "gpt-6.2-sol": frozenset({"low", "medium", "high", "xhigh", "max"}),
+    "gpt-6.2-astra": frozenset({"low", "medium", "high", "xhigh", "max"}),
     "claude-fable-5-1": frozenset({"low", "medium", "high", "xhigh", "max"}),
     "claude-haiku-5-5": frozenset({"low", "medium", "high", "xhigh", "max"}),
     "claude-sonnet-4-6": frozenset({"low", "medium", "high", "max"}),
