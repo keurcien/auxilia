@@ -22,11 +22,15 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-The minimum configuration you need is a database URL, a JWT secret, an MCP encryption salt, and at least one LLM API key:
+The minimum configuration you need is a database connection, a JWT secret, an MCP encryption salt, and at least one LLM API key:
 
 ```env
 # Database
-DATABASE_URL=postgresql+psycopg://auxilia:auxilia@localhost:5432/auxilia
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=auxilia
+DB_PASSWORD=auxilia
+DB_NAME=auxilia
 
 # Redis
 REDIS_HOST=localhost

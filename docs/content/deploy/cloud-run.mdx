@@ -56,7 +56,7 @@ gcloud run deploy auxilia-backend \
   --region ${REGION} \
   --platform managed \
   --allow-unauthenticated \
-  --set-env-vars "DATABASE_URL=postgresql+psycopg://postgres:YOUR_DB_PASSWORD@/auxilia?host=/cloudsql/${PROJECT_ID}:${REGION}:auxilia-db" \
+  --set-env-vars "DB_HOST=/cloudsql/${PROJECT_ID}:${REGION}:auxilia-db,DB_PORT=5432,DB_USER=postgres,DB_PASSWORD=YOUR_DB_PASSWORD,DB_NAME=auxilia" \
   --set-env-vars "REDIS_HOST=REDIS_IP" \
   --set-env-vars "REDIS_PORT=6379" \
   --set-env-vars "JWT_SECRET_KEY=your-jwt-secret" \
