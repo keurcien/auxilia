@@ -1,4 +1,5 @@
-from functools import lru_cache
+from functools import cached_property, lru_cache
+from typing import Any
 
 import google.auth
 from google.auth.exceptions import DefaultCredentialsError
@@ -7,6 +8,7 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
+from app.model_providers.federation import anthropic_credentials, openai_clients
 from app.model_providers.settings import model_provider_settings
 
 
@@ -17,6 +19,12 @@ from app.model_providers.settings import model_provider_settings
 # via Vertex AI instead of the API-key-based Gemini Developer API. Never a
 # real credential value.
 GOOGLE_ADC_SENTINEL = "adc"
+
+# provider_api_keys()'s "anthropic" / "openai" slot when workload identity
+# federation is configured (see federation.py): ChatModelFactory then
+# authenticates with the GCP service account's identity instead of an API
+# key. Never a real credential value.
+WORKLOAD_IDENTITY_SENTINEL = "workload-identity"
 
 # google-genai only requests this scope itself when it resolves ADC
 # internally; since we fetch and hand it `credentials=` explicitly (see
@@ -64,10 +72,16 @@ def provider_api_keys() -> dict[str, str]:
     tests and env changes don't fight module state. Which *models* those
     providers may serve is decided by the whitelist + the workspace's
     enablement rows (ModelService), never here."""
+    # Federation wins over an API key: its IDs are an explicit opt-in, and
+    # keeping the key configured during a migration must not mask it.
     keys = {
-        "openai": model_provider_settings.openai_api_key,
+        "openai": WORKLOAD_IDENTITY_SENTINEL
+        if model_provider_settings.openai_federation
+        else model_provider_settings.openai_api_key,
         "deepseek": model_provider_settings.deepseek_api_key,
-        "anthropic": model_provider_settings.anthropic_api_key,
+        "anthropic": WORKLOAD_IDENTITY_SENTINEL
+        if model_provider_settings.anthropic_federation
+        else model_provider_settings.anthropic_api_key,
         "google": model_provider_settings.google_api_key
         or (GOOGLE_ADC_SENTINEL if _google_adc() else None),
         "xiaomi": model_provider_settings.xiaomi_api_key,
@@ -85,6 +99,18 @@ class ResponsesChatOpenAI(ChatOpenAI):
         return super().bind_tools(
             tools, strict=False if strict is None else strict, **kwargs
         )
+
+
+class FederatedChatAnthropic(ChatAnthropic):
+    """ChatAnthropic authenticated by workload identity federation: the SDK
+    client gets `credentials=` (it caches and refreshes the access token)
+    instead of an API key."""
+
+    @cached_property
+    def _client_params(self) -> dict[str, Any]:
+        params = ChatAnthropic._client_params.func(self)  # type: ignore[attr-defined]
+        # api_key=None: any explicit key, even "", shadows `credentials`.
+        return {**params, "api_key": None, "credentials": anthropic_credentials()}
 
 
 class ChatModelFactory:
@@ -111,12 +137,23 @@ class ChatModelFactory:
                 # Use Responses for every native OpenAI model so newly added
                 # reasoning models can bind tools without an endpoint allowlist.
                 # LangChain translates reasoning_effort to reasoning.effort.
+                auth: dict[str, Any] = {"api_key": api_key}
+                if api_key == WORKLOAD_IDENTITY_SENTINEL:
+                    # Prebuilt clients: LangChain only builds its own (from an
+                    # API key) when `client` is unset.
+                    root, root_async = openai_clients()
+                    auth = {
+                        "root_client": root,
+                        "root_async_client": root_async,
+                        "client": root.chat.completions,
+                        "async_client": root_async.chat.completions,
+                    }
                 return ResponsesChatOpenAI(
                     model=model_id,
-                    api_key=api_key,
                     max_retries=0,
                     use_responses_api=True,
                     reasoning_effort=reasoning_effort,
+                    **auth,
                 )
             case "deepseek":
                 # DeepSeek V4 selects thinking by parameters: `thinking.type`
@@ -157,14 +194,18 @@ class ChatModelFactory:
                     kwargs["effort"] = reasoning_effort or "medium"
                 else:
                     kwargs["thinking"] = {"type": "enabled", "budget_tokens": 1024}
-                return ChatAnthropic(
+                if api_key == WORKLOAD_IDENTITY_SENTINEL:
+                    chat_anthropic: type[ChatAnthropic] = FederatedChatAnthropic
+                else:
+                    chat_anthropic = ChatAnthropic
+                    kwargs["api_key"] = api_key
+                return chat_anthropic(
                     model=model_id,
                     temperature=1,
                     max_tokens=32768,
                     streaming=True,
                     timeout=None,
                     max_retries=0,
-                    api_key=api_key,
                     **kwargs,
                 )
             case "google":
