@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.118](https://github.com/jr-k/auxilia/compare/backend-v0.11.117...backend-v0.11.118) (2026-11-19)
+
+
+### Features
+
+* **models:** add GPT-6.2 Sol and GPT-6.2 Astra ([#323](https://github.com/jr-k/auxilia/issues/323)) ([a223acb](https://github.com/jr-k/auxilia/commit/a223acbd2cfefcbb787bc0b1976e54417ccba297))
+
 ## [0.11.117](https://github.com/jr-k/auxilia/compare/backend-v0.11.116...backend-v0.11.117) (2026-11-19)
 
 
