@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.28](https://github.com/keurcien/auxilia/compare/backend-v0.9.27...backend-v0.9.28) (2026-11-19)
+
+
+### Features
+
+* **mcp:** identify the client as auxilia to MCP servers ([#466](https://github.com/keurcien/auxilia/issues/466)) ([9380f4d](https://github.com/keurcien/auxilia/commit/9380f4d096b9c1d36b6599d4358080aa86701b52))
+* **runs:** stream a run's events over a single request ([#469](https://github.com/keurcien/auxilia/issues/469)) ([71eb960](https://github.com/keurcien/auxilia/commit/71eb960faf6303e92d7ab414dc453eda15f5a17e))
+
 ## [0.9.27](https://github.com/keurcien/auxilia/compare/backend-v0.9.26...backend-v0.9.27) (2026-11-16)
 
 
