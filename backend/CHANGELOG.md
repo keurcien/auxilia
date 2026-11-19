@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.117](https://github.com/jr-k/auxilia/compare/backend-v0.11.116...backend-v0.11.117) (2026-11-19)
+
+
+### Features
+
+* **runtime:** context window gauge and readable model errors ([#321](https://github.com/jr-k/auxilia/issues/321)) ([e57c855](https://github.com/jr-k/auxilia/commit/e57c85549d97e90c5262101f0bdcb0733e8fea0a))
+
+
+### Bug Fixes
+
+* **mcp:** treat GitHub's HTTP 200 refresh errors as a rejected token instead of retrying them forever ([e57c855](https://github.com/jr-k/auxilia/commit/e57c85549d97e90c5262101f0bdcb0733e8fea0a))
+* **model-providers:** stop storing OpenAI responses server side, which failed with "The response is too large to store" ([e57c855](https://github.com/jr-k/auxilia/commit/e57c85549d97e90c5262101f0bdcb0733e8fea0a))
+
 ## [0.11.116](https://github.com/jr-k/auxilia/compare/backend-v0.11.115...backend-v0.11.116) (2026-11-17)
 
 
