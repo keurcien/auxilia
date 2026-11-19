@@ -19,6 +19,7 @@ from app.exceptions import DomainValidationError, NotFoundError
 from app.runtime.api.protocol_schemas import ProtocolCommand
 from app.runtime.api.protocol_service import ProtocolService
 from app.runtime.checkpoints import EMPTY_STATE
+from app.runtime.protocol.filter import run_stream_filter
 from app.runtime.protocol.wire import (
     decode_event,
     encode_event,
@@ -26,6 +27,8 @@ from app.runtime.protocol.wire import (
     frame,
     seq_for_entry,
 )
+from app.runtime.runs.models import RunDB
+from app.runtime.runs.state import RunStatus
 from tests.runtime.fake_checkpoints import checkpoint_state
 
 
@@ -557,3 +560,140 @@ async def test_run_start_rejects_an_unknown_multitask_strategy():
                 params={"input": {}, "multitaskStrategy": "yolo"},
             ),
         )
+
+
+# --- /runs/stream: one run's events, then how it ended -------------------------
+
+
+class _Runs:
+    """`RunService.get` returning the run's durable record."""
+
+    def __init__(self, record: RunDB | Exception):
+        self._record = record
+
+    async def get(self, run_id: str) -> RunDB:
+        if isinstance(self._record, Exception):
+            raise self._record
+        return self._record
+
+
+def _run(status: RunStatus = RunStatus.pending, error: str | None = None) -> RunDB:
+    return RunDB(id="run1", thread_id="t1", status=status, error=error)
+
+
+async def _stream_invoke(
+    monkeypatch, record, *, result=None, output_schema=None
+) -> list[dict | str]:
+    """Drive `stream_invoke` with a canned relay; returns the parsed frames."""
+    service = _service()
+    service.runs = _Runs(record)
+
+    async def relay(run, sink, *, since):
+        assert since is None  # a fresh run is always relayed from its start
+        yield "RELAYED"
+
+    async def read_result(thread_id, run_id):
+        # Addressed by run: the thread's latest checkpoint may be a later run's.
+        assert (thread_id, run_id) == ("t1", "run1")
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(service, "_stream_run", relay)
+    monkeypatch.setattr(service_mod, "read_run_result", read_result)
+    sink = run_stream_filter(["messages"], subagents=False)
+    frames = [f async for f in service.stream_invoke(_run(), sink, output_schema)]
+    assert frames[0] == "RELAYED"
+    assert frames[-1].startswith("data: ") and frames[-1].endswith("\n\n")
+    return [frames[0], json.loads(frames[-1][len("data: ") :])]
+
+
+async def test_stream_invoke_closes_with_the_invoke_result(monkeypatch):
+    _, result = await _stream_invoke(
+        monkeypatch,
+        _run(RunStatus.success),
+        result={"content": "hello", "structured_response": None},
+    )
+    assert result == {
+        "type": "result",
+        "run_id": "run1",
+        "status": "success",
+        "content": "hello",
+        "structured_response": None,
+        "error": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        (RunStatus.error, "boom"),
+        (RunStatus.interrupted, None),
+        (RunStatus.cancelled, None),
+        (RunStatus.timeout, "Run timed out"),
+    ],
+)
+async def test_stream_invoke_reports_a_non_success_without_content(
+    monkeypatch, status, error
+):
+    """Partial checkpoint data must not ride out as an answer — as on /invoke."""
+    _, result = await _stream_invoke(
+        monkeypatch,
+        _run(status, error),
+        result=AssertionError("the checkpoint must not be read"),
+    )
+    assert result["status"] == status.value
+    assert result["error"] == error
+    assert result["content"] is None
+
+
+async def test_stream_invoke_reports_a_superseded_run_as_cancelled(monkeypatch):
+    """The relay stops early for a run a newer one interrupts, before its
+    cancel has landed; the caller still gets a verdict instead of a bare EOF."""
+    _, result = await _stream_invoke(monkeypatch, _run(RunStatus.running))
+    assert result["status"] == "cancelled"
+
+
+async def test_stream_invoke_fails_a_schema_violating_success(monkeypatch):
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "integer"}},
+        "required": ["answer"],
+    }
+    _, result = await _stream_invoke(
+        monkeypatch,
+        _run(RunStatus.success),
+        result={"content": "prose", "structured_response": {}},
+        output_schema=schema,
+    )
+    assert result["status"] == "error"
+    assert "valid structured response" in result["error"]
+    assert result["structured_response"] is None
+
+
+async def test_stream_invoke_still_closes_when_the_result_cannot_be_read(monkeypatch):
+    _, result = await _stream_invoke(
+        monkeypatch, _run(RunStatus.success), result=RuntimeError("checkpoint down")
+    )
+    assert result["status"] == "error"
+    assert result["error"] == "Could not read the run result."
+
+
+async def test_stream_invoke_still_closes_when_the_relay_breaks(monkeypatch):
+    """Redis going away mid-run must not end a started response frameless."""
+    service = _service()
+
+    async def relay(run, sink, *, since):
+        yield "RELAYED"
+        raise ConnectionError("redis gone")
+
+    monkeypatch.setattr(service, "_stream_run", relay)
+    sink = run_stream_filter(["messages"], subagents=False)
+    frames = [f async for f in service.stream_invoke(_run(), sink, None)]
+
+    assert frames[0] == "RELAYED"
+    assert len(frames) == 2
+    result = json.loads(frames[1][len("data: ") :])
+    assert result["type"] == "result"
+    assert result["status"] == "error"
+    assert result["error"] == "Could not relay the run's events."

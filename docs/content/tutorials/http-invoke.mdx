@@ -48,14 +48,14 @@ curl -s https://your-auxilia-host/api/backend/model-providers/models \
 # [{"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "isDefault": true, ...}, ...]
 ```
 
-All API paths in this page go through the web app's proxy, so they start with `/api/backend`. If you address the backend service directly, drop that prefix.
+All API paths in this page go through the web app's proxy, so they start with `/api/backend`. If you address the backend service directly, drop that prefix — and write collection paths with a trailing slash there (`POST /threads/`), which the proxy otherwise adds for you.
 
 ## Step 3 — Create a thread
 
 A **thread** is the conversation. Create one for the agent and model you picked:
 
 ```bash
-curl -s -X POST https://your-auxilia-host/api/backend/threads/ \
+curl -s -X POST https://your-auxilia-host/api/backend/threads \
   -H "Authorization: Bearer YOUR_PAT" \
   -H "Content-Type: application/json" \
   -d '{
@@ -104,6 +104,19 @@ curl -s -X POST https://your-auxilia-host/api/backend/threads/0b1c6f9e-…/runs/
 ```
 
 `content` is the agent's prose answer. The tool calls it made along the way are visible in the thread in the **auxilia** UI (and in [Langfuse](/deploy/langfuse) if enabled).
+
+### Streaming the answer instead
+
+`POST /threads/{thread_id}/runs/stream` takes the same body and starts the same run, but answers with Server-Sent Events while the agent works — text as it is generated, tool calls as they happen — and closes with a final frame holding the same `content` / `structured_response`:
+
+```bash
+curl -N -X POST https://your-auxilia-host/api/backend/threads/0b1c6f9e-…/runs/stream \
+  -H "Authorization: Bearer YOUR_PAT" \
+  -H "Content-Type: application/json" \
+  -d '{ "input": { "messages": [{ "type": "human", "content": "Summarize yesterday'\''s HubSpot deals closed over $10k" }] } }'
+```
+
+One difference to keep in mind: once the stream has started the status is already `200`, so a run that fails midway reports it in that final frame (`"status": "error"`) rather than as a `500`. The frame format, a browser client and the proxy you need in front of it are covered in **[Embed an agent in a custom UI](/tutorials/embed-custom-ui)**.
 
 ### Structured output
 

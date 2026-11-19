@@ -26,7 +26,7 @@ from app.agents.run_spec import AgentSpec
 from app.exceptions import DomainValidationError, StructuredOutputError
 from app.integrations.tracing import NoOpTracing
 from app.runtime.agent import RECURSION_LIMIT_MESSAGE, Agent, ResolvedAgent
-from app.runtime.checkpoints import get_checkpoint_state
+from app.runtime.checkpoints import get_checkpoint_state, get_run_checkpoint_state
 from app.runtime.toolset import PreparedToolset, Toolset
 from tests.runtime.scripted_model import ScriptedChatModel
 from tests.sandbox.stub_sandbox import StubSandbox
@@ -179,6 +179,25 @@ async def test_stream_runs_the_graph_and_emits_the_model_answer(in_memory_runtim
     # The instructions reached the model as its system prompt.
     assert model.calls[0][0].type == "system"
     assert system_text(model).startswith("You are a test agent")
+
+
+@pytest.mark.asyncio
+async def test_a_runs_state_survives_the_next_run_on_the_thread(in_memory_runtime):
+    """`/runs/invoke` and `/runs/stream` read a finished run's answer back from
+    the checkpoint; an enqueued run can write the thread's next checkpoint
+    before that read, so the read is addressed by run, not "latest"."""
+    agent, _ = build_agent(script=["first answer", "second answer"])
+
+    await collect(agent, "one", run_id="run-1")
+    await collect(agent, "two", run_id="run-2")
+
+    first = await get_run_checkpoint_state(in_memory_runtime, "thread-1", "run-1")
+    assert first.messages[-1].content == "first answer"
+    second = await get_run_checkpoint_state(in_memory_runtime, "thread-1", "run-2")
+    assert second.messages[-1].content == "second answer"
+    # A run that predates the stamp falls back to the thread's latest state.
+    legacy = await get_run_checkpoint_state(in_memory_runtime, "thread-1", "run-0")
+    assert legacy.messages[-1].content == "second answer"
 
 
 @pytest.mark.asyncio

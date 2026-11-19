@@ -40,6 +40,13 @@ from langgraph.constants import CONFIG_KEY_CHECKPOINTER
 from langgraph.graph import START, StateGraph
 
 
+#: Checkpoint-metadata key naming the run that wrote a checkpoint (stamped by
+#: `Agent.stream`). Deliberately not `run_id`: langgraph reads that key itself
+#: and treats a value matching the latest checkpoint's as re-entry into an
+#: ongoing run, ignoring the new input (`PregelLoop._first`).
+RUN_METADATA_KEY = "auxilia_run_id"
+
+
 class _ReaderState(DeepAgentState):
     """The channels a reader materialises: deepagents' agent state plus the
     ``todos`` channel ``TodoListMiddleware`` adds on the sandbox path."""
@@ -127,5 +134,43 @@ async def get_checkpoint_state(
     reader = _READER.compile(checkpointer=checkpointer)
     snapshot = await reader.aget_state(
         {"configurable": {**configurable, CONFIG_KEY_CHECKPOINTER: checkpointer}}
+    )
+    return CheckpointState(saved=saved, values=dict(snapshot.values))
+
+
+async def get_run_checkpoint_state(
+    checkpointer: BaseCheckpointSaver, thread_id: str, run_id: str
+) -> CheckpointState:
+    """The root state as run ``run_id`` left it — its newest checkpoint, not
+    the thread's.
+
+    A thread's latest checkpoint stops being a finished run's result the
+    moment the next run on the thread writes its input, and an enqueued run
+    is claimed as soon as its predecessor is terminal. Falls back to the
+    latest checkpoint when no checkpoint names the run (one that started
+    before the stamp existed).
+    """
+    config: RunnableConfig = {
+        "configurable": {"thread_id": thread_id, "checkpoint_ns": ""}
+    }
+    # Exhausted before the point read below: `AsyncPostgresSaver.alist` holds
+    # its cursor lock while yielding (see `iter_checkpoint_messages`).
+    found = [
+        saved
+        async for saved in checkpointer.alist(
+            config, filter={RUN_METADATA_KEY: run_id}, limit=1
+        )
+    ]
+    if not found:
+        return await get_checkpoint_state(checkpointer, thread_id)
+    saved = found[0]
+    reader = _READER.compile(checkpointer=checkpointer)
+    snapshot = await reader.aget_state(
+        {
+            "configurable": {
+                **saved.config["configurable"],
+                CONFIG_KEY_CHECKPOINTER: checkpointer,
+            }
+        }
     )
     return CheckpointState(saved=saved, values=dict(snapshot.values))

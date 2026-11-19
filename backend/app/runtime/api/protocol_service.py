@@ -32,22 +32,29 @@ from redis.asyncio import Redis
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import DomainValidationError, NotFoundError
 from app.redis_client import get_redis
+from app.runtime.agent import read_run_result
 from app.runtime.api.protocol_repository import CheckpointWriteRepository
 from app.runtime.api.protocol_schemas import EventStreamBody, ProtocolCommand
 from app.runtime.checkpoints import get_checkpoint_state
 from app.runtime.hitl import InterruptScope, load_interrupt_scopes, scope_wire_id
+from app.runtime.middleware.structured_output import validate_structured_response
 from app.runtime.protocol.events import (
     terminal_lifecycle,
     values_event,
 )
-from app.runtime.protocol.filter import StreamFilter
+from app.runtime.protocol.filter import AnyFilter, StreamFilter
 from app.runtime.protocol.messages import serialize_message, serialize_message_preview
-from app.runtime.protocol.wire import decode_event, frame, seq_for_entry
+from app.runtime.protocol.wire import (
+    decode_event,
+    frame,
+    result_frame,
+    seq_for_entry,
+)
 from app.runtime.runs.events import RunEventStream
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.service import RunService
 from app.runtime.runs.settings import run_settings
-from app.runtime.runs.state import MultitaskStrategy, is_terminal
+from app.runtime.runs.state import MultitaskStrategy, RunStatus, is_terminal
 
 
 logger = logging.getLogger(__name__)
@@ -244,8 +251,75 @@ class ProtocolService:
             return None  # pre-flush record; only possible in tests
         return await self.runs.next_for_thread(thread_id, after)
 
+    async def stream_invoke(
+        self, run: RunDB, sink: AnyFilter, output_schema: dict | None
+    ) -> AsyncGenerator[str, None]:
+        """`/runs/stream`: relay one run's events, then say how it ended.
+
+        The single-request counterpart of a thread session — it follows this
+        run only and closes by itself. The last frame is always a `result`
+        (see `wire.result_frame`): the response's status was sent before the
+        run started, so that frame is the only place its outcome can go.
+        """
+        # Past the 200, a frame is the only error channel left: neither a
+        # broken relay (Redis gone) nor an unreadable checkpoint may end the
+        # response without one.
+        try:
+            async for sse in self._stream_run(run, sink, since=None):
+                yield sse
+        except Exception:
+            logger.exception("Could not relay the events of run %s", run.id)
+            yield result_frame(
+                run_id=run.id,
+                status=RunStatus.error.value,
+                error="Could not relay the run's events.",
+            )
+            return
+        try:
+            result = await self._invoke_result(run, output_schema)
+        except Exception:
+            logger.exception("Could not read the result of run %s", run.id)
+            result = result_frame(
+                run_id=run.id,
+                status=RunStatus.error.value,
+                error="Could not read the run result.",
+            )
+        yield result
+
+    async def _invoke_result(self, run: RunDB, output_schema: dict | None) -> str:
+        """The `result` frame for a run whose relay has ended — the same
+        verdict `/runs/invoke` reaches, as data instead of a status code."""
+        record = await self.runs.get(run.id)
+        if not is_terminal(record.status):
+            # The relay only stops early for a run a newer one interrupts
+            # (`_superseded`); its cancel just hasn't landed yet.
+            return result_frame(run_id=run.id, status=RunStatus.cancelled.value)
+        if record.status is not RunStatus.success:
+            return result_frame(
+                run_id=run.id, status=record.status.value, error=record.error
+            )
+        result = await read_run_result(run.thread_id, run.id)
+        # Same backstop as `/runs/invoke`: the schema contract must hold on
+        # everything returned as a success.
+        if output_schema is not None and (
+            error := validate_structured_response(
+                result["structured_response"], output_schema
+            )
+        ):
+            return result_frame(
+                run_id=run.id,
+                status=RunStatus.error.value,
+                error=f"Run completed without a valid structured response: {error}",
+            )
+        return result_frame(
+            run_id=run.id,
+            status=RunStatus.success.value,
+            content=result["content"],
+            structured_response=result["structured_response"],
+        )
+
     async def _stream_run(
-        self, run: RunDB, sink: StreamFilter, *, since: int | None
+        self, run: RunDB, sink: StreamFilter | AnyFilter, *, since: int | None
     ) -> AsyncGenerator[str, None]:
         """Relay one run's stored events through the session filter.
 

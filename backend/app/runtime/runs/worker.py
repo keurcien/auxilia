@@ -212,6 +212,7 @@ class RunWorker:
                         trigger=record.trigger,
                         config_overrides=record.config_overrides,
                         output_schema=record.output_schema,
+                        run_id=record.id,
                     )
                 ) as stream,
             ):
