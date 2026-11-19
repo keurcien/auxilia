@@ -5,8 +5,9 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from app.exceptions import DomainValidationError
 from app.main import app
-from app.runtime.api.runs_router import get_run_service
+from app.runtime.api.runs_router import get_protocol_service, get_run_service
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.state import RunStatus
 from app.threads.models import ThreadDB
@@ -256,21 +257,162 @@ def test_async_run_preserves_the_requested_output_schema(client, mock_db, curren
     assert fake.create_kwargs["output_schema"] == schema
 
 
-def test_legacy_stream_endpoints_are_gone(client: TestClient, mock_db, current_user):
-    """Live streaming is the protocol's `/threads/{id}/stream/events` now; the
-    pre-protocol SSE routes must not linger as a second wire format."""
+def test_run_reattach_route_is_not_served(client: TestClient, mock_db, current_user):
+    """`POST /runs/stream` relays one run in a single request; re-attaching to
+    a run is the thread session's job (`/threads/{id}/stream/events`), so the
+    pre-protocol per-run GET must not linger beside it."""
     thread = _owned_thread(current_user)
     _mock_thread_lookup(mock_db, thread)
     fake = _FakeRunService()
     app.dependency_overrides[get_run_service] = lambda: fake
     try:
-        created = client.post(f"/threads/{thread.id}/runs/stream", json={"input": {}})
         reattached = client.get(f"/threads/{thread.id}/runs/run1/stream")
     finally:
         app.dependency_overrides.pop(get_run_service, None)
-    assert created.status_code in (404, 405)
     assert reattached.status_code in (404, 405)
     assert fake.calls == []
+
+
+class _FakeProtocol:
+    """Stands in for ProtocolService: records what the route asked to relay."""
+
+    def __init__(self):
+        self.run: RunDB | None = None
+        self.sink = None
+        self.output_schema: dict | None = None
+
+    async def stream_invoke(self, run, sink, output_schema):
+        self.run, self.sink, self.output_schema = run, sink, output_schema
+        yield 'data: {"type":"event","method":"lifecycle"}\n\n'
+        yield 'data: {"type":"result","status":"success"}\n\n'
+
+
+def _stream(client, thread, fake, protocol, body):
+    app.dependency_overrides[get_run_service] = lambda: fake
+    app.dependency_overrides[get_protocol_service] = lambda: protocol
+    try:
+        return client.post(f"/threads/{thread.id}/runs/stream", json=body)
+    finally:
+        app.dependency_overrides.pop(get_run_service, None)
+        app.dependency_overrides.pop(get_protocol_service, None)
+
+
+def test_stream_creates_the_run_and_relays_its_events(
+    client: TestClient, mock_db, current_user
+):
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake, protocol = _FakeRunService(), _FakeProtocol()
+    schema = {"type": "object", "properties": {"answer": {"type": "integer"}}}
+
+    response = _stream(
+        client,
+        thread,
+        fake,
+        protocol,
+        {
+            "input": {"messages": [{"type": "human", "content": "hi"}]},
+            "output_schema": schema,
+            "multitask_strategy": "interrupt",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["x-run-id"] == "run1"
+    assert response.text.count("data: ") == 2
+    assert response.text.rstrip().endswith('{"type":"result","status":"success"}')
+    # Gate, then release the auth connection, then create — as on /invoke.
+    assert fake.calls == ["gate", "create"]
+    assert fake.gate_args == (thread.agent_id, str(thread.user_id))
+    assert fake.create_kwargs["output_schema"] == schema
+    assert fake.create_kwargs["multitask_strategy"] == "interrupt"
+    assert protocol.run.id == "run1"
+    assert protocol.output_schema == schema
+
+
+def test_stream_relays_the_root_agent_and_every_approval_by_default(
+    client: TestClient, mock_db, current_user
+):
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake, protocol = _FakeRunService(), _FakeProtocol()
+
+    _stream(client, thread, fake, protocol, {"input": {"messages": []}})
+
+    def event(method, namespace):
+        return {"method": method, "params": {"namespace": namespace, "data": {}}}
+
+    sink = protocol.sink
+    assert sink.matches(event("messages", []))
+    assert sink.matches(event("tools", []))
+    assert sink.matches(event("lifecycle", []))
+    assert not sink.matches(event("values", []))  # not asked for
+    # A subagent's prose stays out of the answer; its approval request must not.
+    assert not sink.matches(event("messages", ["tools:abc"]))
+    assert sink.matches(event("input.requested", ["tools:abc"]))
+
+
+def test_stream_can_widen_to_subagents_and_other_channels(
+    client: TestClient, mock_db, current_user
+):
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake, protocol = _FakeRunService(), _FakeProtocol()
+
+    _stream(
+        client,
+        thread,
+        fake,
+        protocol,
+        {"input": {"messages": []}, "channels": ["messages"], "subagents": True},
+    )
+
+    def event(method, namespace):
+        return {"method": method, "params": {"namespace": namespace, "data": {}}}
+
+    assert protocol.sink.matches(event("messages", ["tools:abc"]))
+    assert not protocol.sink.matches(event("tools", []))
+    assert not protocol.sink.matches(event("input.requested", []))
+
+
+def test_stream_refuses_before_opening_when_oauth_is_missing(
+    client: TestClient, mock_db, current_user
+):
+    """A refusal must be a status code, never a 200 that then streams an error."""
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake, protocol = _FakeRunService(), _FakeProtocol()
+    fake.blocking_auth_url = "https://auth.example/authorize"
+
+    response = _stream(client, thread, fake, protocol, {"input": {"messages": []}})
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "error": "oauth_required",
+        "auth_url": "https://auth.example/authorize",
+    }
+    assert fake.calls == ["gate"]
+    assert protocol.run is None
+
+
+def test_stream_surfaces_a_create_refusal_as_its_status(
+    client: TestClient, mock_db, current_user
+):
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake, protocol = _FakeRunService(), _FakeProtocol()
+
+    async def refuse(**_kwargs):
+        raise DomainValidationError("This thread already has an active run.")
+
+    fake.create = refuse
+
+    response = _stream(client, thread, fake, protocol, {"input": {"messages": []}})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "This thread already has an active run."
+    assert protocol.run is None
 
 
 @pytest.mark.parametrize("path", ["invoke", ""])

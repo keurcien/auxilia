@@ -44,3 +44,36 @@ class StreamFilter:
         namespace = event.get("params", {}).get("namespace", [])
         prefixes = [list(ns) for ns in self.namespaces] if self.namespaces else None
         return namespace_matches(namespace, prefixes, self.depth)
+
+
+@dataclass(frozen=True)
+class AnyFilter:
+    """Delivers an event when any of its filters would."""
+
+    filters: tuple[StreamFilter, ...]
+
+    def matches(self, event: dict) -> bool:
+        return any(f.matches(event) for f in self.filters)
+
+
+def run_stream_filter(channels: list[str], *, subagents: bool) -> AnyFilter:
+    """The sink of `POST /threads/{id}/runs/stream`.
+
+    Without `subagents` only the root agent's events pass — a consumer that
+    appends every text delta to one bubble must not interleave a subagent's
+    prose with the answer. `input` is exempt: a paused subagent's request is
+    announced under *its* namespace (see `ProtocolEmitter._input_requested`),
+    and dropping it would leave the caller with an `interrupted` run and
+    nothing to answer."""
+    if subagents:
+        return AnyFilter((StreamFilter(channels=tuple(channels)),))
+    filters = [
+        StreamFilter(
+            channels=tuple(c for c in channels if c != "input"),
+            namespaces=((),),
+            depth=0,
+        )
+    ]
+    if "input" in channels:
+        filters.append(StreamFilter(channels=("input",)))
+    return AnyFilter(tuple(filters))

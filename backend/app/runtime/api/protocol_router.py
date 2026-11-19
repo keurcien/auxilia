@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user  # noqa: F401 — via authorize_thread
 from app.database import get_db
 from app.mcp.client.responses import oauth_required_response
-from app.redis_client import get_redis
 from app.runtime.api.costs import (
     ConversationCost,
     CostService,
@@ -31,7 +30,12 @@ from app.runtime.api.protocol_schemas import (
     ProtocolCommand,
 )
 from app.runtime.api.protocol_service import ProtocolService
-from app.runtime.api.runs_router import authorize_thread, get_run_service
+from app.runtime.api.runs_router import (
+    SSE_HEADERS,
+    authorize_thread,
+    get_protocol_service,
+    get_run_service,
+)
 from app.runtime.runs.service import RunService
 from app.threads.dependencies import authorize_thread_read
 from app.threads.models import ThreadDB
@@ -39,16 +43,6 @@ from app.threads.schemas import ThreadResponse
 
 
 router = APIRouter(prefix="/threads/{thread_id}", tags=["protocol"])
-
-_SSE_HEADERS = {
-    "Cache-Control": "no-cache, no-transform",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no",
-}
-
-
-def get_protocol_service() -> ProtocolService:
-    return ProtocolService(get_redis())
 
 
 @router.get("/cost")
@@ -114,7 +108,7 @@ async def stream_events(
     return StreamingResponse(
         service.stream_events(thread_id, body),
         media_type="text/event-stream",
-        headers=_SSE_HEADERS,
+        headers=SSE_HEADERS,
     )
 
 

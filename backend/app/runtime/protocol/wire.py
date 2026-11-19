@@ -92,3 +92,28 @@ def frame(event: dict, *, run_id: str, entry_id: str) -> str:
         **event,
     }
     return f"id: {event_id}\ndata: {json.dumps(envelope, default=json_default)}\n\n"
+
+
+def result_frame(
+    *,
+    run_id: str,
+    status: str,
+    content: str | None = None,
+    structured_response: Any = None,
+    error: str | None = None,
+) -> str:
+    """The closing SSE frame of `POST /threads/{id}/runs/stream`.
+
+    Not a protocol event — its `type` is `result`, so a protocol client
+    (which dispatches on `type: "event"`) ignores it. It tells a plain HTTP
+    consumer how the run ended (`status` is the `RunStatus` value) and, on
+    `success`, carries what `/runs/invoke` returns."""
+    payload = {
+        "type": "result",
+        "run_id": run_id,
+        "status": status,
+        "content": content,
+        "structured_response": structured_response,
+        "error": error,
+    }
+    return f"data: {json.dumps(payload, default=json_default)}\n\n"

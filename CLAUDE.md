@@ -172,7 +172,7 @@ auxilia/
 │   │   │   ├── middleware/            # Leaf middleware: current_date, tool_errors, structured_output (import only app.exceptions)
 │   │   │   ├── protocol/              # Agent Streaming Protocol codec — emit.py (worker-side v3 → wire events), wire.py (log codec + replay cursors), events, messages, filter. Leaf: imports nothing from runs/
 │   │   │   ├── runs/                  # Durable run lifecycle — Redis-backed runs, queue, worker, reaper (see runs/SPEC.md)
-│   │   │   └── api/                   # HTTP surface — runs_router.py (/threads/{id}/runs, /invoke), protocol_router.py + protocol_service.py (/threads/{id}/commands, /stream/events, /state, /history)
+│   │   │   └── api/                   # HTTP surface — runs_router.py (/threads/{id}/runs, /invoke, /stream — invoke as SSE, closing with a `result` frame), protocol_router.py + protocol_service.py (/threads/{id}/commands, /stream/events, /state, /history)
 │   │   ├── sandbox/                   # Sandboxed code execution — provider.py owns the lifecycle
 │   │   │                              # (open_sandbox at run start, SandboxGoneError → replace, availability probe)
 │   │   ├── skills/                    # Skill library + runtime (over `skillkit`, below)

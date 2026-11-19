@@ -6,13 +6,18 @@ This tutorial walks through the patterns for doing that. The specifics vary by h
 
 ## The basic idea
 
-**auxilia** exposes an HTTP endpoint that streams an agent's response as the LLM generates it. Your custom UI:
+**auxilia** exposes one HTTP endpoint that starts a turn and streams the agent's response as it is generated. Your custom UI:
 
 1. Captures what the user typed
-2. Sends it to the **auxilia** streaming endpoint (authenticated with a personal access token)
-3. Reads the streamed chunks as they arrive and renders them in your UI
+2. Sends it to **your own backend**, which forwards it to **auxilia** with a personal access token
+3. Reads the streamed events as they arrive and renders them
 
 The agent itself — its instructions, its tools, its MCP server bindings — lives in **auxilia**. Your custom UI is just a thin chat surface on top.
+
+```
+Browser ──fetch──▶ Your backend (adds the PAT) ──▶ auxilia /api/backend/threads/{id}/runs/stream
+   ◀──── SSE ────────────── piped through ◀──────────────── SSE ────
+```
 
 ## When this pattern makes sense
 
@@ -24,54 +29,320 @@ The agent itself — its instructions, its tools, its MCP server bindings — li
 
 ## What you'll need
 
-- An **auxilia** deployment reachable from your embedding site (see [Deploy & Configure](/deploy))
-- A **personal access token** (see [User Management](/deploy/user-management))
-- A host UI where you can add a chat input and display streamed text — could be React, a WebView in a native app, a Slack canvas, a Google Apps Script sidebar, etc.
+- An **auxilia** deployment reachable from your backend (see [Deploy & Configure](/deploy))
+- A **personal access token** (see [Trigger agents over HTTP](/tutorials/http-invoke#step-1--mint-a-personal-access-token))
+- The agent's ID and a model ID (see [Step 2 of the same tutorial](/tutorials/http-invoke#step-2--find-the-agent-id-and-a-model-id))
+- A small backend of your own — any language that can make an HTTP request and stream the response
 
-## The streaming endpoints
+All paths below go through the **auxilia** web app's proxy, so they start with `/api/backend`. If you address the backend service directly, drop that prefix.
 
-**auxilia** speaks the [Agent Streaming Protocol](https://github.com/langchain-ai/agent-protocol/tree/main/streaming) — the same delta-based protocol the `@langchain/react` / `@langchain/langgraph-sdk` clients consume, so a React host can reuse those packages as-is (point `apiUrl` at your **auxilia** deployment's `/api/backend`).
+## Why you need a proxy
 
-First create the thread, once per conversation — the same call as in [Trigger agents over HTTP](/tutorials/http-invoke#step-3--create-a-thread):
+Your browser code must not call **auxilia** directly, for three reasons:
+
+- **The token is a secret.** A PAT acts as the user who owns it — their role, their agents, their connected MCP accounts. Anything shipped to a browser can be read from devtools.
+- **auxilia doesn't know your users.** Every request made with the PAT is that one **auxilia** user. Your backend is the only place that knows *which of your users* is asking, so it is the one that must decide whether they may use a given thread.
+- **Browsers would block it anyway.** **auxilia** only accepts cross-origin browser requests from its own web app.
+
+So the proxy has exactly three jobs:
+
+1. **Authenticate your user** with whatever your app already uses (session cookie, JWT…)
+2. **Check the thread belongs to them** — store `(your user id → thread id)` when you create a thread, and refuse any thread id you didn't hand to that user
+3. **Forward the request with the PAT and pipe the response back untouched**, without buffering it
+
+The third point is where streaming usually breaks. The response is a long-lived `text/event-stream`: hand the body through as a stream, don't `await` it as text or JSON, and make sure nothing in between (nginx, a CDN, a serverless platform) buffers or compresses it. If tokens arrive all at once at the end, something is buffering.
+
+Here is a complete proxy as a Next.js route handler. The same thirty lines translate directly to Express, FastAPI, Rails, or anything else:
+
+```ts
+// app/api/chat/[threadId]/route.ts
+const AUXILIA = process.env.AUXILIA_URL;   // https://your-auxilia-host/api/backend
+const PAT = process.env.AUXILIA_PAT;       // server-side only
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ threadId: string }> },
+) {
+  const { threadId } = await params;
+
+  // 1 + 2: your auth, your ownership check.
+  const user = await getSessionUser(request);
+  if (!user) return new Response(null, { status: 401 });
+  if (!(await userOwnsThread(user.id, threadId))) {
+    return new Response(null, { status: 403 });
+  }
+
+  // 3: forward with the PAT. Only pass through the fields you intend to
+  // expose — here, the user's text and nothing else.
+  const { text } = await request.json();
+  const upstream = await fetch(`${AUXILIA}/threads/${threadId}/runs/stream`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PAT}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      input: { messages: [{ type: "human", content: text }] },
+    }),
+    // If the browser goes away, stop reading from auxilia too.
+    signal: request.signal,
+  });
+
+  // Refusals (401/403/404/409…) arrive as ordinary JSON responses with their
+  // status; a started run arrives as an event stream. Either way: same
+  // status, same body, piped through as a stream.
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: {
+      "Content-Type":
+        upstream.headers.get("Content-Type") ?? "application/json",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+      "X-Run-Id": upstream.headers.get("X-Run-Id") ?? "",
+    },
+  });
+}
+```
+
+Creating the thread goes through your backend the same way — that's where you record who owns it:
+
+```ts
+// app/api/chat/route.ts
+export async function POST(request: Request) {
+  const user = await getSessionUser(request);
+  if (!user) return new Response(null, { status: 401 });
+
+  const response = await fetch(`${AUXILIA}/threads`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PAT}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      agent_id: process.env.AUXILIA_AGENT_ID,
+      model_id: "claude-haiku-4-5",
+    }),
+  });
+  const thread = await response.json();
+  await rememberThreadOwner(user.id, thread.id);
+  return Response.json({ threadId: thread.id });
+}
+```
+
+## The streaming endpoint
 
 ```
-POST /api/backend/threads/
-{ "agent_id": "…", "model_id": "claude-haiku-4-5" }
+POST /api/backend/threads/{thread_id}/runs/stream
 ```
 
-Then two calls per thread drive the conversation:
+It takes the same body as [`runs/invoke`](/tutorials/http-invoke#step-4--send-a-message-and-wait-for-the-answer), starts the same kind of run, and answers with **Server-Sent Events** until the run ends, then closes the connection. One request per turn; context lives in the thread, so a follow-up message is simply another call on the same thread id.
+
+```bash
+curl -N -X POST https://your-auxilia-host/api/backend/threads/0b1c6f9e-…/runs/stream \
+  -H "Authorization: Bearer YOUR_PAT" \
+  -H "Content-Type: application/json" \
+  -d '{ "input": { "messages": [{ "type": "human", "content": "What did this customer last ask us about?" }] } }'
+```
+
+| Body field | Default | Meaning |
+| --- | --- | --- |
+| `input` | — | `{ "messages": [{ "type": "human", "content": "…" }] }` — starts a turn |
+| `command` | — | `{ "resume": … }` — answers an approval request instead of starting a turn (see [Approvals](#approvals)) |
+| `output_schema` | — | A JSON Schema; the validated object comes back in the final frame's `structured_response` |
+| `multitask_strategy` | `"reject"` | What to do if the thread is still running: `reject` (400), `enqueue` (wait for it), or `interrupt` (stop it and start this one) |
+| `channels` | `["messages", "tools", "lifecycle", "input"]` | Which kinds of events to send |
+| `subagents` | `false` | Also send events from inside subagents |
+
+The response carries the run's id in the `X-Run-Id` header.
+
+### What comes back
+
+Each frame is one `data:` line holding a JSON object. Frames with `"type": "event"` are [Agent Streaming Protocol](https://github.com/langchain-ai/agent-protocol/tree/main/streaming) events — the same ones the **auxilia** chat app renders from:
 
 ```
-POST /api/backend/threads/{thread_id}/commands
-POST /api/backend/threads/{thread_id}/stream/events
+data: {"type":"event","method":"lifecycle","params":{"namespace":[],"data":{"event":"running"}}}
+
+data: {"type":"event","method":"messages","params":{"namespace":[],"data":{"event":"message-start","role":"ai","id":"lc_run--01a1…"}}}
+
+data: {"type":"event","method":"messages","params":{"namespace":[],"data":{"event":"content-block-delta","index":0,"delta":{"type":"text-delta","text":"Hello"}}}}
+
+data: {"type":"event","method":"messages","params":{"namespace":[],"data":{"event":"message-finish"}}}
+
+data: {"type":"event","method":"lifecycle","params":{"namespace":[],"data":{"event":"completed"}}}
+
+data: {"type":"result","run_id":"793da115-…","status":"success","content":"Hello! How are you today?","structured_response":null,"error":null}
 ```
 
-The first starts a turn:
+(Frames also carry `event_id`, `seq` and a `timestamp`, left out here. Lines starting with `:` are keep-alive comments — ignore them.)
+
+| `method` | `data.event` | What to do with it |
+| --- | --- | --- |
+| `messages` | `message-start` | A message begins. **Check `role`**: render `ai`; skip the others (see the note below) |
+| `messages` | `content-block-delta` | With `delta.type == "text-delta"`, append `delta.text` to the current message. Other delta types are reasoning or tool-call arguments |
+| `messages` | `message-finish` | The message is complete |
+| `tools` | `tool-started` / `tool-finished` / `tool-error` | A tool call (`tool_name`, `input`, `output`) — show a "Searching HubSpot…" indicator |
+| `lifecycle` | `started` / `running` / `completed` / `failed` / `interrupted` | The run's progress |
+| `input.requested` | — | The agent is waiting for an approval (see [Approvals](#approvals)) |
+
+Two things to know when rendering:
+
+- **Human messages are echoed.** The stream includes `message-start` events with `"role": "human"` — the user's message, and on later turns earlier ones too. You already rendered what the user typed, so only render messages whose `message-start` said `"role": "ai"`. The deltas that follow a `message-start` belong to that message until its `message-finish`.
+- **An agent turn can contain several AI messages** — one before a tool call ("Let me check…"), one after. Start a new bubble, or keep appending, as you prefer.
+
+### The final frame
+
+The last frame is always `"type": "result"`. It is the one place to look to know how the run ended:
+
+| `status` | Meaning | `content` |
+| --- | --- | --- |
+| `success` | The agent answered | The full final answer (and `structured_response`, if you sent `output_schema`) |
+| `interrupted` | Waiting for an approval | `null` |
+| `cancelled` | Stopped — by a cancel call, or by a newer message sent with `multitask_strategy: "interrupt"` | `null` |
+| `error` / `timeout` | The run failed; `error` holds the reason | `null` |
+
+Because the HTTP status is sent before the run starts, **a run that fails midway is still a `200`** — the failure is in this frame, not in the status code. Problems detected *before* the run starts are ordinary error responses with a JSON body:
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `400` | `{"detail": "This thread already has an active run."}` | The previous turn is still running — wait, or send `multitask_strategy` |
+| `401` | `{"error": "oauth_required", "auth_url": "…"}` | An OAuth MCP server bound to the agent isn't connected for the token's user. Open `auth_url` once, signed in to **auxilia** as that user |
+| `403` / `404` | `{"detail": "…"}` | The thread belongs to another **auxilia** user, or doesn't exist |
+| `409` | `{"error": "model_unavailable", …}` / `{"error": "sandbox_unavailable", …}` | The thread's model or the agent's sandbox can't be used right now |
+
+## Reading the stream in the browser
+
+`EventSource` can't send a `POST`, so read the response body with `fetch`. This is the whole client — it talks to the proxy above, never to **auxilia**:
+
+```ts
+type Handlers = {
+  onText: (text: string) => void;                   // append to the current answer
+  onTool?: (name: string, running: boolean) => void;
+  onApproval?: (interruptId: string, payload: unknown) => void;
+};
+
+export async function sendMessage(
+  threadId: string,
+  text: string,
+  handlers: Handlers,
+  signal?: AbortSignal,
+) {
+  const response = await fetch(`/api/chat/${threadId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+    signal,
+  });
+  // Refused before the run started: a normal JSON error.
+  if (!response.ok || !response.body) {
+    throw new Error((await response.json().catch(() => null))?.detail ?? "Request failed");
+  }
+
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  let fromAgent = false;   // is the message being streamed the agent's?
+  let result = null;
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    // Frames are separated by a blank line.
+    let end: number;
+    while ((end = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      const line = frame.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) continue;                           // keep-alive comment
+      const message = JSON.parse(line.slice(6));
+
+      if (message.type === "result") {
+        result = message;
+        continue;
+      }
+      const data = message.params.data;
+      if (message.method === "messages") {
+        if (data.event === "message-start") fromAgent = data.role === "ai";
+        if (
+          fromAgent &&
+          data.event === "content-block-delta" &&
+          data.delta?.type === "text-delta"
+        ) {
+          handlers.onText(data.delta.text);
+        }
+      } else if (message.method === "tools") {
+        // tool-started carries tool_name; the others end the indicator.
+        handlers.onTool?.(data.tool_name ?? "", data.event === "tool-started");
+      } else if (message.method === "input.requested") {
+        handlers.onApproval?.(data.interrupt_id, data.payload);
+      }
+    }
+  }
+  // { status, content, structured_response, error } — null only if the
+  // connection dropped before the run finished.
+  return result;
+}
+```
+
+When it returns, branch on `result.status`: `success` (you can replace the streamed text with `result.content`, they are the same answer), `interrupted` (show the approval UI), `error` / `timeout` (show `result.error`), `cancelled`. A `null` result means the connection dropped mid-run — see the next section.
+
+## Reloads, dropped connections, and Stop
+
+A run belongs to **auxilia**, not to the HTTP request that started it. **Closing the connection does not stop the agent** — it keeps working and saves its answer to the thread. That gives you three building blocks, each one more route on your proxy:
+
+- **Show a conversation again** (page reload, returning user, a stream that dropped): `GET /api/backend/threads/{thread_id}/state` returns the saved conversation as `values.messages` — a list of `{ "type": "human" | "ai" | "tool", "content": … }`. An AI message's `content` is either a string or a list of blocks; render the blocks whose `type` is `"text"`. If `next` is non-empty the thread is still running or waiting for an approval.
+- **A Stop button**: `POST /api/backend/threads/{thread_id}/runs/{run_id}/cancel`, with the run id from the `X-Run-Id` response header. Aborting the browser's `fetch` alone only stops *watching*.
+- **The user sends a new message while the agent is still answering**: either disable the input until the result frame arrives, or send the new message with `"multitask_strategy": "interrupt"` — the previous run is stopped (its stream ends with `status: "cancelled"`) and the new one starts.
+
+## Approvals
+
+If the agent calls a tool set to **needs approval**, the run pauses: the stream delivers an `input.requested` event describing the tool calls, then ends with `status: "interrupted"`.
 
 ```json
-{ "id": 1, "method": "run.start", "params": { "input": { "messages": [{ "type": "human", "content": "What did this customer last ask us about?" }] } } }
+{
+  "type": "event",
+  "method": "input.requested",
+  "params": {
+    "namespace": [],
+    "data": {
+      "interrupt_id": "5f0c…",
+      "payload": {
+        "action_requests": [
+          { "name": "send_email", "args": { "to": "jane@example.com", "subject": "…" } }
+        ]
+      }
+    }
+  }
+}
 ```
 
-The second opens a **Server-Sent Events** session on the thread. Its body is the subscription filter — `{"channels": ["messages", "tools", "lifecycle", "values", "input"]}` — and every frame is one protocol event: `messages` events carry `message-start` / `content-block-delta` (the text tokens) / `message-finish`, `tools` events the tool calls and their results, and a root `lifecycle` event with `completed`, `failed` or `interrupted` ends the turn. Your UI appends the text deltas to the message being rendered, exactly the way the **auxilia** chat app does.
+To continue, call `runs/stream` again on the same thread with a `command` instead of an `input` — one decision per action request, in the same order:
 
-For one-shot, non-streaming calls (useful for slower-moving surfaces like spreadsheet cells), use `POST /api/backend/threads/{thread_id}/runs/invoke`, which blocks and returns the final answer — see **[Trigger agents over HTTP](/tutorials/http-invoke)**.
+```json
+{ "command": { "resume": { "decisions": [{ "type": "approve" }] } } }
+```
+
+Use `{ "type": "reject", "message": "Not this recipient" }` to refuse; the agent is told why and carries on. The resumed run streams exactly like a normal turn.
+
+You have three ways to deal with this, in increasing order of effort:
+
+- **Only expose agents whose tools are on `always allow`** — no approvals possible, simplest UX. Review the agent's [tool settings](/agents/tools).
+- **Route approvals back to the auxilia web app** — the thread shows up there with the pending approval; your UI just says "waiting for approval".
+- **Build approval UI into your custom app** — render the `action_requests`, send the decision through your proxy.
 
 ## A typical integration plan
 
-A solid implementation usually covers these steps:
-
 1. **Add a chat widget** to your host UI (textarea + message list + submit button)
-2. **Store the PAT on your backend**, not in the browser — otherwise anyone with devtools can extract it
-3. **Proxy requests through your own server** — the user hits your API, your server adds the PAT and forwards to **auxilia**
-4. **Stream the response back** to the browser using the same SSE shape
-5. **Track the thread ID** per user per session so follow-up messages keep context
-6. **Handle approvals** — if the agent calls a tool that needs approval, decide how (or whether) to surface that in your UI
+2. **Store the PAT on your backend**, never in the browser
+3. **Add the proxy routes**: create a thread, send a message (streaming), and — when you need them — load the state, cancel a run
+4. **Record which of your users owns which thread**, and check it on every route
+5. **Render the stream**: AI text deltas, optionally tool indicators, then the result frame
+6. **Decide how to handle approvals** (see above) before you pick the agent
 
-The last step is worth thinking through early. Options:
+## Using the LangChain SDK instead
 
-- **Route approvals back to the web app or Slack** — users get notified and approve elsewhere
-- **Only expose agents with `always allow` tools** — no approvals possible, simpler UX
-- **Build approval UI into your custom app** — more work, but keeps users in one place
+**auxilia** also serves the full Agent Streaming Protocol session the `@langchain/react` / `@langchain/langgraph-sdk` clients consume — `POST /threads/{thread_id}/commands` to start and resume runs, and `POST /threads/{thread_id}/stream/events`, a long-lived SSE session that follows every run of the thread and re-attaches to a run in progress. It is what the **auxilia** chat app itself uses. Reach for it if you are building a full chat client in React and want `useStream` to manage state, optimistic updates and reconnection for you; point its `apiUrl` at your proxy, which then has to forward those paths (plus `/state` and `/history`). For everything else, `runs/stream` is the simpler contract.
+
+For one-shot, non-streaming calls (useful for slower-moving surfaces like spreadsheet cells), use `POST /api/backend/threads/{thread_id}/runs/invoke`, which blocks and returns the final answer — see **[Trigger agents over HTTP](/tutorials/http-invoke)**.
 
 ## Example setups
 

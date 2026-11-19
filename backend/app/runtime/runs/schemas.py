@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.state import MultitaskStrategy, RunStatus
@@ -18,6 +18,23 @@ class RunCreate(BaseModel):
     config: dict | None = None
     output_schema: dict | None = None
     multitask_strategy: MultitaskStrategy = "reject"
+
+
+#: What a `/runs/stream` consumer gets unless it asks otherwise: the answer's
+#: tokens, tool activity, the run's lifecycle and approval requests.
+DEFAULT_STREAM_CHANNELS = ["messages", "tools", "lifecycle", "input"]
+
+
+class RunStreamCreate(RunCreate):
+    """Client payload for `POST /threads/{thread_id}/runs/stream` — the
+    `/invoke` body plus what to relay.
+
+    `channels` are Agent Streaming Protocol channels; `subagents` also relays
+    events from inside subagents (namespaced), which are otherwise dropped.
+    """
+
+    channels: list[str] = Field(default_factory=lambda: list(DEFAULT_STREAM_CHANNELS))
+    subagents: bool = False
 
 
 class RunResponse(BaseModel):
