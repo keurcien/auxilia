@@ -123,6 +123,14 @@ export async function POST(request: Request) {
       model_id: "claude-haiku-4-5",
     }),
   });
+  // Refused (unknown agent, unavailable model…): pass the error on rather
+  // than recording a thread that doesn't exist.
+  if (!response.ok) {
+    return new Response(await response.text(), {
+      status: response.status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   const thread = await response.json();
   await rememberThreadOwner(user.id, thread.id);
   return Response.json({ threadId: thread.id });
@@ -150,8 +158,8 @@ curl -N -X POST https://your-auxilia-host/api/backend/threads/0b1c6f9e-…/runs/
 | `command` | — | `{ "resume": … }` — answers an approval request instead of starting a turn (see [Approvals](#approvals)) |
 | `output_schema` | — | A JSON Schema; the validated object comes back in the final frame's `structured_response` |
 | `multitask_strategy` | `"reject"` | What to do if the thread is still running: `reject` (400), `enqueue` (wait for it), or `interrupt` (stop it and start this one) |
-| `channels` | `["messages", "tools", "lifecycle", "input"]` | Which kinds of events to send |
-| `subagents` | `false` | Also send events from inside subagents |
+| `channels` | `["messages", "tools", "lifecycle", "input"]` | Which kinds of events to send. An unknown name is a `422`. Approval requests (`input`) are sent whatever you list here |
+| `subagents` | `false` | Also send events from inside subagents. Their approval requests are sent either way |
 
 The response carries the run's id in the `X-Run-Id` header.
 

@@ -38,7 +38,11 @@ from app.exceptions import DomainValidationError, NotFoundError, StructuredOutpu
 from app.integrations.tracing import NoOpTracing, RunTracing, get_tracing
 from app.model_providers.catalog import ChatModelFactory
 from app.model_providers.service import ModelService
-from app.runtime.checkpoints import get_checkpoint_state
+from app.runtime.checkpoints import (
+    RUN_METADATA_KEY,
+    get_checkpoint_state,
+    get_run_checkpoint_state,
+)
 from app.runtime.harness import (
     HARNESS_CONFIG,
     harness_middleware,
@@ -739,6 +743,7 @@ class Agent:
         config_overrides: dict | None,
         output_schema: dict | None = None,
         trusted_host_notices: bool = False,
+        run_id: str | None = None,
     ):
         """Open a checkpointer scope and yield (agent, resolved_input, config).
 
@@ -779,6 +784,9 @@ class Agent:
             config, resolved_input = await self._resolve_config(
                 agent, checkpointer, trigger, config_overrides, resolved_input
             )
+            if run_id is not None:
+                # langgraph copies config metadata onto every checkpoint.
+                config["metadata"] = {**config["metadata"], RUN_METADATA_KEY: run_id}
             # After `_resolve_config`: a notice must not count as the input a
             # no-input regeneration replaces with the user's message.
             if self._restored:
@@ -912,6 +920,7 @@ class Agent:
         config_overrides: dict | None = None,
         output_schema: dict | None = None,
         trusted_host_notices: bool = False,
+        run_id: str | None = None,
     ):
         """Run one turn, yielding Agent Streaming Protocol events (`{method,
         params}` dicts — see `app/runtime/protocol/emit.py`).
@@ -932,6 +941,8 @@ class Agent:
             config_overrides: Optional config dict with configurable overrides.
             output_schema: Optional JSON Schema; when set, the run produces a
                 `structured_response` in its final state (read via `read_run_result`).
+            run_id: The durable run this turn executes; stamped on its
+                checkpoints so `read_run_result` reads this run's state.
         """
         async with self._setup(
             agent_input,
@@ -940,6 +951,7 @@ class Agent:
             config_overrides,
             output_schema,
             trusted_host_notices,
+            run_id,
         ) as (
             agent,
             stream_input,
@@ -1062,15 +1074,20 @@ def extract_invoke_result(
     }
 
 
-async def read_run_result(thread_id: str) -> dict:
-    """Read a thread's final-turn result from its checkpoint (out-of-request).
+async def read_run_result(thread_id: str, run_id: str | None = None) -> dict:
+    """Read a run's final-turn result from its checkpoint (out-of-request).
 
     The durable runtime streams a run to its event log rather than returning a
-    value, so the synchronous `/runs/invoke` consumer reads the answer back from
-    the LangGraph checkpoint once the run is terminal.
+    value, so the `/runs/invoke` and `/runs/stream` consumers read the answer
+    back from the LangGraph checkpoint once the run is terminal. With `run_id`
+    it is that run's last checkpoint, not the thread's: the next run on the
+    thread may already have written its input by the time this reads.
     """
     async with get_checkpointer() as checkpointer:
-        state = await get_checkpoint_state(checkpointer, thread_id)
+        if run_id is not None:
+            state = await get_run_checkpoint_state(checkpointer, thread_id, run_id)
+        else:
+            state = await get_checkpoint_state(checkpointer, thread_id)
     return extract_invoke_result(state.messages, state.structured_response)
 
 

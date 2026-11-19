@@ -48,7 +48,7 @@ curl -s https://your-auxilia-host/api/backend/model-providers/models \
 # [{"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "isDefault": true, ...}, ...]
 ```
 
-All API paths in this page go through the web app's proxy, so they start with `/api/backend`. If you address the backend service directly, drop that prefix.
+All API paths in this page go through the web app's proxy, so they start with `/api/backend`. If you address the backend service directly, drop that prefix — and write collection paths with a trailing slash there (`POST /threads/`), which the proxy otherwise adds for you.
 
 ## Step 3 — Create a thread
 

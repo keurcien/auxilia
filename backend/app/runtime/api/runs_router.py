@@ -165,7 +165,7 @@ async def invoke_run(
         raise DomainError(
             record.error or f"Run did not complete ({record.status.value})"
         )
-    result = await read_run_result(thread_id)
+    result = await read_run_result(thread_id, record.id)
     # Backstop for paths where the formatting turn never ran (e.g. recursion
     # fallback): the schema contract must hold on everything returned here.
     if output_schema is not None and (

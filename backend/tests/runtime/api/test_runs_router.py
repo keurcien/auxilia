@@ -373,7 +373,30 @@ def test_stream_can_widen_to_subagents_and_other_channels(
 
     assert protocol.sink.matches(event("messages", ["tools:abc"]))
     assert not protocol.sink.matches(event("tools", []))
-    assert not protocol.sink.matches(event("input.requested", []))
+    # Not asked for, relayed anyway: without it an interrupted run leaves the
+    # caller nothing to answer.
+    assert protocol.sink.matches(event("input.requested", []))
+    assert protocol.sink.matches(event("input.requested", ["tools:abc"]))
+
+
+def test_stream_rejects_an_unknown_channel(client: TestClient, mock_db, current_user):
+    """A typo must not turn into a stream that silently delivers nothing."""
+    thread = _owned_thread(current_user)
+    _mock_thread_lookup(mock_db, thread)
+    fake, protocol = _FakeRunService(), _FakeProtocol()
+
+    response = _stream(
+        client,
+        thread,
+        fake,
+        protocol,
+        {"input": {"messages": []}, "channels": ["messges", "custom:progress"]},
+    )
+
+    assert response.status_code == 422
+    assert "messges" in response.text
+    assert "custom:progress" not in response.json()["detail"][0]["msg"]
+    assert fake.calls == []
 
 
 def test_stream_refuses_before_opening_when_oauth_is_missing(

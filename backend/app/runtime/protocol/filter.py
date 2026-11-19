@@ -61,19 +61,18 @@ def run_stream_filter(channels: list[str], *, subagents: bool) -> AnyFilter:
 
     Without `subagents` only the root agent's events pass — a consumer that
     appends every text delta to one bubble must not interleave a subagent's
-    prose with the answer. `input` is exempt: a paused subagent's request is
-    announced under *its* namespace (see `ProtocolEmitter._input_requested`),
-    and dropping it would leave the caller with an `interrupted` run and
-    nothing to answer."""
-    if subagents:
-        return AnyFilter((StreamFilter(channels=tuple(channels)),))
-    filters = [
-        StreamFilter(
-            channels=tuple(c for c in channels if c != "input"),
-            namespaces=((),),
-            depth=0,
+    prose with the answer.
+
+    `input` passes whatever was asked for, from every namespace: dropping an
+    approval request leaves the caller with an `interrupted` run and nothing
+    to answer, and a paused subagent's request is announced under *its*
+    namespace (see `ProtocolEmitter._input_requested`)."""
+    rest = tuple(c for c in channels if c != "input")
+    return AnyFilter(
+        (
+            StreamFilter(channels=("input",)),
+            StreamFilter(channels=rest)
+            if subagents
+            else StreamFilter(channels=rest, namespaces=((),), depth=0),
         )
-    ]
-    if "input" in channels:
-        filters.append(StreamFilter(channels=("input",)))
-    return AnyFilter(tuple(filters))
+    )

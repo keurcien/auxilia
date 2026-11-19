@@ -592,8 +592,9 @@ async def _stream_invoke(
         assert since is None  # a fresh run is always relayed from its start
         yield "RELAYED"
 
-    async def read_result(thread_id):
-        assert thread_id == "t1"
+    async def read_result(thread_id, run_id):
+        # Addressed by run: the thread's latest checkpoint may be a later run's.
+        assert (thread_id, run_id) == ("t1", "run1")
         if isinstance(result, Exception):
             raise result
         return result
@@ -676,3 +677,23 @@ async def test_stream_invoke_still_closes_when_the_result_cannot_be_read(monkeyp
     )
     assert result["status"] == "error"
     assert result["error"] == "Could not read the run result."
+
+
+async def test_stream_invoke_still_closes_when_the_relay_breaks(monkeypatch):
+    """Redis going away mid-run must not end a started response frameless."""
+    service = _service()
+
+    async def relay(run, sink, *, since):
+        yield "RELAYED"
+        raise ConnectionError("redis gone")
+
+    monkeypatch.setattr(service, "_stream_run", relay)
+    sink = run_stream_filter(["messages"], subagents=False)
+    frames = [f async for f in service.stream_invoke(_run(), sink, None)]
+
+    assert frames[0] == "RELAYED"
+    assert len(frames) == 2
+    result = json.loads(frames[1][len("data: ") :])
+    assert result["type"] == "result"
+    assert result["status"] == "error"
+    assert result["error"] == "Could not relay the run's events."

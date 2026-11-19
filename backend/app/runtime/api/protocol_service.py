@@ -261,12 +261,23 @@ class ProtocolService:
         (see `wire.result_frame`): the response's status was sent before the
         run started, so that frame is the only place its outcome can go.
         """
-        async for sse in self._stream_run(run, sink, since=None):
-            yield sse
+        # Past the 200, a frame is the only error channel left: neither a
+        # broken relay (Redis gone) nor an unreadable checkpoint may end the
+        # response without one.
+        try:
+            async for sse in self._stream_run(run, sink, since=None):
+                yield sse
+        except Exception:
+            logger.exception("Could not relay the events of run %s", run.id)
+            yield result_frame(
+                run_id=run.id,
+                status=RunStatus.error.value,
+                error="Could not relay the run's events.",
+            )
+            return
         try:
             result = await self._invoke_result(run, output_schema)
         except Exception:
-            # Past the 200, a frame is the only error channel left.
             logger.exception("Could not read the result of run %s", run.id)
             result = result_frame(
                 run_id=run.id,
@@ -287,7 +298,7 @@ class ProtocolService:
             return result_frame(
                 run_id=run.id, status=record.status.value, error=record.error
             )
-        result = await read_run_result(run.thread_id)
+        result = await read_run_result(run.thread_id, run.id)
         # Same backstop as `/runs/invoke`: the schema contract must hold on
         # everything returned as a success.
         if output_schema is not None and (
