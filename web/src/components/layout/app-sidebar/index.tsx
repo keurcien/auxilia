@@ -38,7 +38,10 @@ import {
 	FolderKanban,
 	MessageSquare,
 	MessagesSquare,
+	FolderClosed,
 	FolderInput,
+	Folders,
+	FolderX,
 	Mail,
 	MailOpen,
 	type LucideIcon,
@@ -325,8 +328,44 @@ const THREAD_SOURCE_FILTER_ICON: Record<ThreadSourceFilter, LucideIcon> = {
 	triggers: AlarmClock,
 };
 
+type ThreadProjectFilter = "all" | "inProject" | "noProject";
+
+const NEXT_THREAD_PROJECT_FILTER: Record<
+	ThreadProjectFilter,
+	ThreadProjectFilter
+> = {
+	all: "inProject",
+	inProject: "noProject",
+	noProject: "all",
+};
+
+const THREAD_PROJECT_FILTER_COPY: Record<
+	ThreadProjectFilter,
+	{ label: string; description: string }
+> = {
+	all: {
+		label: "All threads",
+		description: "Showing threads with and without a project",
+	},
+	inProject: {
+		label: "In a project",
+		description: "Showing threads that belong to a project only",
+	},
+	noProject: {
+		label: "No project",
+		description: "Showing threads without a project only",
+	},
+};
+
+const THREAD_PROJECT_FILTER_ICON: Record<ThreadProjectFilter, LucideIcon> = {
+	all: Folders,
+	inProject: FolderClosed,
+	noProject: FolderX,
+};
+
 const THREAD_COMPLETION_FILTER_KEY = "auxilia:recent-threads-completion-filter";
 const THREAD_SOURCE_FILTER_KEY = "auxilia:recent-threads-source-filter";
+const THREAD_PROJECT_FILTER_KEY = "auxilia:recent-threads-project-filter";
 
 function parseThreadCompletionFilter(
 	value: string | null,
@@ -338,6 +377,14 @@ function parseThreadCompletionFilter(
 
 function parseThreadSourceFilter(value: string | null): ThreadSourceFilter | null {
 	return value === "all" || value === "conversations" || value === "triggers"
+		? value
+		: null;
+}
+
+function parseThreadProjectFilter(
+	value: string | null,
+): ThreadProjectFilter | null {
+	return value === "all" || value === "inProject" || value === "noProject"
 		? value
 		: null;
 }
@@ -357,6 +404,10 @@ export function AppSidebar() {
 	} = useThreadsStore();
 	const triggers = useTriggersStore((state) => state.triggers);
 	const refreshProjectTree = useProjectsStore((state) => state.refreshTree);
+	const projectTree = useProjectsStore((state) => state.tree);
+	const projectsById = new Map(
+		projectTree.map((project) => [project.id, project]),
+	);
 	const triggersReady = useTriggersStore((state) => state.isInitialized);
 	const mcpServers = useMcpServersStore((state) => state.mcpServers);
 	const mcpServersReady = useMcpServersStore((state) => state.isInitialized);
@@ -382,12 +433,20 @@ export function AppSidebar() {
 		useState<ThreadCompletionFilter>("mixed");
 	const [threadSourceFilter, setThreadSourceFilter] =
 		useState<ThreadSourceFilter>("all");
+	const [threadProjectFilter, setThreadProjectFilter] =
+		useState<ThreadProjectFilter>("all");
 	const [movingThread, setMovingThread] =
 		useState<ThreadPlacementTarget | null>(null);
 	const filteredThreads = threads.filter((thread) => {
 		if (threadSourceFilter !== "all") {
 			const isTriggerThread = thread.source === "trigger";
 			if (isTriggerThread !== (threadSourceFilter === "triggers")) {
+				return false;
+			}
+		}
+		if (threadProjectFilter !== "all") {
+			const inProject = thread.projectId != null;
+			if (inProject !== (threadProjectFilter === "inProject")) {
 				return false;
 			}
 		}
@@ -444,6 +503,16 @@ export function AppSidebar() {
 		});
 	}, []);
 
+	useEffect(() => {
+		const saved = parseThreadProjectFilter(
+			window.localStorage.getItem(THREAD_PROJECT_FILTER_KEY),
+		);
+		if (saved === null) return;
+		queueMicrotask(() => {
+			setThreadProjectFilter(saved);
+		});
+	}, []);
+
 	const clearSelection = selection.clear;
 	useEffect(() => {
 		// Fired only in the other tabs, when one of them saves a filter.
@@ -458,6 +527,11 @@ export function AppSidebar() {
 				if (next === null) return;
 				clearSelection();
 				setThreadSourceFilter(next);
+			} else if (event.key === THREAD_PROJECT_FILTER_KEY) {
+				const next = parseThreadProjectFilter(event.newValue);
+				if (next === null) return;
+				clearSelection();
+				setThreadProjectFilter(next);
 			}
 		};
 		window.addEventListener("storage", handleStorage);
@@ -484,6 +558,13 @@ export function AppSidebar() {
 		selection.clear();
 		setThreadSourceFilter(next);
 		window.localStorage.setItem(THREAD_SOURCE_FILTER_KEY, next);
+	};
+
+	const cycleThreadProjectFilter = () => {
+		const next = NEXT_THREAD_PROJECT_FILTER[threadProjectFilter];
+		selection.clear();
+		setThreadProjectFilter(next);
+		window.localStorage.setItem(THREAD_PROJECT_FILTER_KEY, next);
 	};
 
 	const navCounts: Record<string, number | undefined> = {
@@ -721,6 +802,13 @@ export function AppSidebar() {
 											onChange={cycleThreadSourceFilter}
 										/>
 										<CycleFilterControl
+											name="Thread project filter"
+											copy={THREAD_PROJECT_FILTER_COPY[threadProjectFilter]}
+											icon={THREAD_PROJECT_FILTER_ICON[threadProjectFilter]}
+											active={threadProjectFilter !== "all"}
+											onChange={cycleThreadProjectFilter}
+										/>
+										<CycleFilterControl
 											name="Thread filter"
 											copy={THREAD_FILTER_COPY[threadCompletionFilter]}
 											icon={THREAD_FILTER_ICON[threadCompletionFilter]}
@@ -762,6 +850,9 @@ export function AppSidebar() {
 												: isTriggerThread
 													? thread.firstMessageContent
 													: thread.agentName;
+											const project = thread.projectId
+												? projectsById.get(thread.projectId)
+												: undefined;
 											const isMenuOpen = openThreadMenuId === thread.id;
 											const trailingMetadataClass = !selection.selectionMode
 												? isMenuOpen
@@ -826,6 +917,16 @@ export function AppSidebar() {
 																<div className="flex items-center gap-1.5">
 																	<span className="truncate text-[10.5px] text-sidebar-muted-highlight">
 																		{subtitle}
+																		{project && (
+																			<>
+																				<span className="text-sidebar-section-label">
+																					{" / "}
+																				</span>
+																				{project.emoji
+																					? `${project.emoji} ${project.name}`
+																					: project.name}
+																			</>
+																		)}
 																	</span>
 																</div>
 															</div>
