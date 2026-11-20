@@ -74,7 +74,7 @@ async def get_user_info(user_id: str) -> SlackUserInfo | None:
     except ValidationError:
         # Pydantic tracebacks include rejected input, potentially profile emails.
         logger.warning("Slack identity cache payload failed validation")
-    except (RedisError, TimeoutError):
+    except RedisError, TimeoutError:
         logger.warning("Slack identity cache read failed", exc_info=True)
     url = "https://slack.com/api/users.info"
     headers = {"Authorization": f"Bearer {slack_settings.slack_bot_token}"}
@@ -91,7 +91,7 @@ async def get_user_info(user_id: str) -> SlackUserInfo | None:
                 try:
                     async with asyncio.timeout(0.2):
                         await get_redis().set(cache_key, user.model_dump_json(), ex=300)
-                except (RedisError, TimeoutError):
+                except RedisError, TimeoutError:
                     logger.warning("Slack identity cache write failed", exc_info=True)
                 return user
             logger.warning("Slack API error (users.info): %s", data.get("error"))

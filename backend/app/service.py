@@ -1,4 +1,3 @@
-from typing import Generic, TypeVar
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,11 +9,7 @@ from app.repository import BaseRepository
 
 # Matches BaseRepository's bound — see the comment there for why it is SQLModel
 # and not BaseDBModel.
-ModelType = TypeVar("ModelType", bound=SQLModel)
-RepositoryType = TypeVar("RepositoryType", bound=BaseRepository)
-
-
-class BaseService(Generic[ModelType, RepositoryType]):
+class BaseService[ModelType: SQLModel, RepositoryType: BaseRepository]:
     """Common CRUD boilerplate for services backed by a BaseRepository.
 
     Subclasses set ``not_found_message`` and construct the concrete repository

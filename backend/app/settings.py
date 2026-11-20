@@ -1,10 +1,9 @@
 """App-wide settings, and the shared settings config every module reuses."""
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Unpack
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing_extensions import Unpack
 
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent

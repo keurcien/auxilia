@@ -59,7 +59,7 @@ class SlackDelivery(TypedDict):
     team_id: str | None
 
 
-def build_slack_run_consumer(record: RunDB) -> "SlackRunConsumer | None":
+def build_slack_run_consumer(record: RunDB) -> SlackRunConsumer | None:
     """The `DeliveryFactory` for Slack: build a consumer iff the run is Slack-bound."""
     delivery = record.delivery
     if not delivery or delivery.get("channel") != SLACK_CHANNEL:

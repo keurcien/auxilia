@@ -20,7 +20,7 @@ class MCPServerSettings(BaseSettings):
     )
 
     @model_validator(mode="after")
-    def require_salt(self) -> "MCPServerSettings":
+    def require_salt(self) -> MCPServerSettings:
         if self.salt is None and self.mcp_api_key_encryption_salt is None:
             raise ValueError(
                 "Encryption salt not configured. Set SALT (or the deprecated "

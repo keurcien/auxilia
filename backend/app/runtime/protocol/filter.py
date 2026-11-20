@@ -23,7 +23,7 @@ class StreamFilter:
         channels: list[str],
         namespaces: list[list[str]] | None,
         depth: int | None,
-    ) -> "StreamFilter":
+    ) -> StreamFilter:
         return cls(
             channels=tuple(channels),
             namespaces=tuple(tuple(ns) for ns in namespaces)
