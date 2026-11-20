@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.159](https://github.com/jr-k/auxilia/compare/web-v0.12.158...web-v0.12.159) (2026-11-20)
+
+
+### Features
+
+* **web:** show project in sidebar threads and add project filter ([#327](https://github.com/jr-k/auxilia/issues/327)) ([fe5776d](https://github.com/jr-k/auxilia/commit/fe5776dc4d48128121701c04ea88290572857475))
+
 ## [0.12.158](https://github.com/jr-k/auxilia/compare/web-v0.12.157...web-v0.12.158) (2026-11-20)
 
 
