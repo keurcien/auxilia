@@ -20,6 +20,7 @@ import {
 	Server,
 	ScrollText,
 	SquarePen,
+	MoreHorizontal,
 	MoreVertical,
 	Pencil,
 	Trash2,
@@ -100,6 +101,10 @@ import {
 	ThreadPlacementDialog,
 	type ThreadPlacementTarget,
 } from "@/components/layout/app-sidebar/thread-placement-dialog";
+import {
+	ThreadBulkMenu,
+	toBulkThread,
+} from "@/components/layout/app-sidebar/thread-bulk-menu";
 import { toast } from "sonner";
 import {
 	Tooltip,
@@ -412,10 +417,6 @@ export function AppSidebar() {
 	}, [isMobile, pathname, setOpenMobile]);
 
 	useEffect(() => {
-		if (!canDeleteThreads && selection.selectionMode) selection.clear();
-	}, [canDeleteThreads, selection]);
-
-	useEffect(() => {
 		const saved = window.localStorage.getItem("auxilia:sidebar-mode");
 		if (saved !== "projects") return;
 		queueMicrotask(() => {
@@ -628,6 +629,23 @@ export function AppSidebar() {
 									New thread
 								</span>
 							</button>
+							{selection.selectionMode && selectedThreads.length > 0 && (
+								<ThreadBulkMenu
+									threads={selectedThreads.map(toBulkThread)}
+									trigger={
+										<button
+											type="button"
+											title="Bulk options"
+											aria-label={`Bulk options for ${selection.selectedCount} selected conversation${
+												selection.selectedCount === 1 ? "" : "s"
+											}`}
+											className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-input bg-card text-sidebar-foreground shadow-raised transition-[background-color,border-color,transform] duration-150 hover:border-border-hover active:scale-[0.97] data-[state=open]:border-border-hover data-[state=open]:bg-sidebar-accent group-data-[collapsible=icon]:w-[38px] animate-in fade-in zoom-in-95"
+										>
+											<MoreHorizontal className="size-4" />
+										</button>
+									}
+								/>
+							)}
 							{canDeleteThreads && selection.selectionMode && (
 								<button
 									type="button"
@@ -776,15 +794,11 @@ export function AppSidebar() {
 															// prefetches on page load — dozens of requests for
 															// threads the user rarely opens.
 															prefetch={false}
-															{...threadLongPress.bind(
-																canDeleteThreads
-																	? () => {
-																			if (!selection.isSelected(thread.id)) {
-																				selection.toggle(thread.id);
-																			}
-																		}
-																	: undefined,
-															)}
+															{...threadLongPress.bind(() => {
+																if (!selection.isSelected(thread.id)) {
+																	selection.toggle(thread.id);
+																}
+															})}
 															onClickCapture={threadLongPress.onClickCapture}
 															onClick={(event) => {
 																if (selection.selectionMode) {
@@ -796,7 +810,7 @@ export function AppSidebar() {
 															}}
 															className={cn(
 																"flex items-center gap-1.5 px-[5px]",
-																canDeleteThreads && LONG_PRESS_TARGET_CLASS,
+																LONG_PRESS_TARGET_CLASS,
 															)}
 														>
 															<span className="w-7 shrink-0" aria-hidden />
@@ -885,7 +899,6 @@ export function AppSidebar() {
 													<SelectableLeading
 														selected={selection.isSelected(thread.id)}
 														selectionMode={selection.selectionMode}
-														disabled={!canDeleteThreads}
 														label={`Select ${title}`}
 														onToggle={(shiftKey) => {
 															selection.toggle(thread.id, shiftKey);

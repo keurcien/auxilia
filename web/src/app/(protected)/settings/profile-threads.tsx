@@ -13,16 +13,22 @@ import {
 	Mail,
 	MailOpen,
 	MessageSquare,
+	MoreHorizontal,
 	Phone,
 	RotateCcw,
 	Search,
 	Send,
+	Trash2,
 	X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { ConversationCompletionButton } from "@/components/layout/app-sidebar/conversation-completion-button";
+import {
+	ThreadBulkMenu,
+	toBulkThread,
+} from "@/components/layout/app-sidebar/thread-bulk-menu";
 import {
 	BulkConfirmDialog,
 	type BulkFailure,
@@ -293,10 +299,6 @@ export default function ProfileThreads() {
 	const selectedThreads = threads.filter((thread) =>
 		selection.selectedIds.has(thread.id),
 	);
-	useEffect(() => {
-		if (!canDeleteThreads && selection.selectionMode) selection.clear();
-	}, [canDeleteThreads, selection]);
-
 	const toggleCompletion = async (thread: Thread) => {
 		if (completionSavingIds.has(thread.id)) return;
 		setCompletionSavingIds((current) => new Set(current).add(thread.id));
@@ -356,9 +358,7 @@ export default function ProfileThreads() {
 	const columns: DataTableColumn<Thread>[] = [
 		{
 			key: "conversation",
-			header: !canDeleteThreads ? (
-				"Conversation"
-			) : selection.selectionMode ? (
+			header: selection.selectionMode ? (
 				""
 			) : (
 				<span className="flex items-center gap-3">
@@ -382,7 +382,6 @@ export default function ProfileThreads() {
 					<SelectableLeading
 						selected={selection.isSelected(thread.id)}
 						selectionMode={selection.selectionMode}
-						disabled={!canDeleteThreads}
 						label={`Select ${threadTitle(thread)}`}
 						onToggle={(shiftKey) => {
 							selection.toggle(thread.id, shiftKey);
@@ -619,20 +618,50 @@ export default function ProfileThreads() {
 				</div>
 			)}
 
-			{canDeleteThreads && (
-				<BulkActionBar
-					selectedCount={selection.selectedCount}
-					totalCount={threads.length}
-					allSelected={selection.allSelected}
-					someSelected={selection.someSelected}
-					onToggleAll={selection.toggleAll}
-					onClear={selection.clear}
-					actionLabel="Delete"
-					onAction={() => {
-						setBulkOpen(true);
-					}}
-				/>
-			)}
+			<BulkActionBar
+				selectedCount={selection.selectedCount}
+				totalCount={threads.length}
+				allSelected={selection.allSelected}
+				someSelected={selection.someSelected}
+				onToggleAll={selection.toggleAll}
+				onClear={selection.clear}
+				menu={
+					selectedThreads.length > 0 && (
+						<ThreadBulkMenu
+							threads={selectedThreads.map(toBulkThread)}
+							trigger={
+								<button
+									type="button"
+									title="Bulk options"
+									aria-label={`Bulk options for ${selectedThreads.length} selected conversation${
+										selectedThreads.length === 1 ? "" : "s"
+									}`}
+									className="inline-flex size-[30px] cursor-pointer items-center justify-center rounded-[7px] border border-border bg-card text-foreground transition-[border-color,transform] hover:border-border-hover active:translate-y-px data-[state=open]:border-border-hover dark:border-white/10 dark:hover:border-white/20"
+								>
+									<MoreHorizontal className="size-3.5" />
+								</button>
+							}
+							onUpdated={() => {
+								setReloadVersion((current) => current + 1);
+							}}
+						/>
+					)
+				}
+				actions={
+					canDeleteThreads
+						? [
+								{
+									label: "Delete",
+									icon: <Trash2 className="size-3.5" />,
+									destructive: true,
+									onClick: () => {
+										setBulkOpen(true);
+									},
+								},
+							]
+						: []
+				}
+			/>
 
 			<DataTable
 				columns={columns}
@@ -641,13 +670,9 @@ export default function ProfileThreads() {
 				isLoading={isLoading}
 				isRowSelected={(thread) => selection.isSelected(thread.id)}
 				selectionMode={selection.selectionMode}
-				onRowSelectionClick={
-					canDeleteThreads
-						? (thread, shiftKey) => {
-								selection.toggle(thread.id, shiftKey);
-							}
-						: undefined
-				}
+				onRowSelectionClick={(thread, shiftKey) => {
+					selection.toggle(thread.id, shiftKey);
+				}}
 				minTableWidth="620px"
 				onRowClick={(thread) => {
 					router.push(`/agents/${thread.agentId}/chat/${thread.id}`);

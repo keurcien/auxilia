@@ -3,7 +3,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import {
 	ArchiveIcon,
 	Copy,
@@ -14,7 +13,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AGENT_COLORS } from "@/lib/colors";
-import { useTheme } from "next-themes";
 import { Agent, ToolDiscoveryMode } from "@/types/agents";
 import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
@@ -33,6 +31,7 @@ import { useModelsStore } from "@/stores/models-store";
 import { useUserStore } from "@/stores/user-store";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { EmojiPickerPopover } from "@/components/ui/emoji-picker-popover";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -109,7 +108,6 @@ export default function AgentEditor({
 }: AgentEditorProps) {
 	const router = useRouter();
 	const confirmDialog = useConfirmDialog();
-	const { resolvedTheme } = useTheme();
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const createAgent = useAgentsStore((state) => state.createAgent);
 	const saveAgentConfig = useAgentsStore((state) => state.saveAgentConfig);
@@ -194,8 +192,6 @@ export default function AgentEditor({
 	// The "Add tool" dialog is controlled here so the Skills section can
 	// open it ("Turn on code execution") on a skill whose scripts need one.
 	const [addToolOpen, setAddToolOpen] = useState(false);
-	const emojiPickerRef = useRef<HTMLDivElement>(null);
-	const emojiTriggerRef = useRef<HTMLButtonElement>(null);
 	const [langfuseEnabled, setLangfuseEnabled] = useState(false);
 	const [langfuseVersion, setLangfuseVersion] =
 		useState<langfuseApi.LangfusePromptVersion | null>(null);
@@ -315,33 +311,6 @@ export default function AgentEditor({
 	const activeTab = tabs.some((candidate) => candidate.key === tab)
 		? tab
 		: "instructions";
-
-	useEffect(() => {
-		const handleClickOutside = (event: MouseEvent) => {
-			if (
-				emojiPickerRef.current &&
-				!emojiPickerRef.current.contains(event.target as Node)
-			) {
-				setShowEmojiPicker(false);
-			}
-		};
-
-		if (showEmojiPicker) {
-			document.addEventListener("mousedown", handleClickOutside);
-		}
-
-		return () => {
-			document.removeEventListener("mousedown", handleClickOutside);
-		};
-	}, [showEmojiPicker]);
-
-	const handleEmojiClick = (emojiData: EmojiClickData) => {
-		setField("emoji", emojiData.emoji);
-		setShowEmojiPicker(false);
-		requestAnimationFrame(() => {
-			emojiTriggerRef.current?.focus();
-		});
-	};
 
 	const handleSave = async () => {
 		if (!canSave) return;
@@ -894,67 +863,16 @@ export default function AgentEditor({
 							readOnly ? "items-center" : "items-start",
 						)}
 					>
-						<div
-							className={cn(
-								"relative shrink-0",
-								!readOnly && "mt-[22px]",
-							)}
-							onKeyDown={(event) => {
-								if (event.key !== "Escape" || !showEmojiPicker) return;
-								event.preventDefault();
-								event.stopPropagation();
-								setShowEmojiPicker(false);
-								requestAnimationFrame(() => {
-									emojiTriggerRef.current?.focus();
-								});
-							}}
-						>
-							<button
-								ref={emojiTriggerRef}
-								type="button"
-								disabled={readOnly}
-								aria-label={readOnly ? undefined : "Change agent identity"}
-								aria-expanded={readOnly ? undefined : showEmojiPicker}
-								title={readOnly ? undefined : "Change identity"}
-								onKeyDown={(event) => {
-									if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-									event.preventDefault();
-									setShowEmojiPicker(true);
+						<div className={cn("shrink-0", !readOnly && "mt-[22px]")}>
+							<EmojiPickerPopover
+								open={showEmojiPicker}
+								onOpenChange={setShowEmojiPicker}
+								onSelect={(emoji) => {
+									setField("emoji", emoji);
 								}}
-								onClick={() => {
-									setShowEmojiPicker(!showEmojiPicker);
-								}}
-								className="relative flex size-12 cursor-pointer items-center justify-center rounded-full text-2xl transition-opacity hover:opacity-90 disabled:cursor-default disabled:hover:opacity-100"
-							>
-								{imageFile ? (
-									<ImageFilePreview file={imageFile} className="rounded-full" />
-								) : (
-									<AgentAvatar
-										agentId={agent?.id}
-										name={form.name}
-										imageRevision={
-											removeImage ? null : agent?.imageRevision
-										}
-										color={form.color}
-										emoji={form.emoji}
-										size="md"
-										className="pointer-events-none size-full"
-									/>
-								)}
-								{!readOnly && (
-									<span className="absolute -bottom-[5px] -right-[5px] flex size-[18px] items-center justify-center rounded-full border border-input bg-card shadow-raised">
-										<Pencil className="size-[9px] text-subtle dark:text-panel-body" />
-									</span>
-								)}
-							</button>
-							{showEmojiPicker && (
-								<div
-									ref={emojiPickerRef}
-									role="region"
-									aria-label="Change agent identity"
-									className="absolute left-0 top-full z-50 mt-2"
-								>
-									<div className="rounded-t-lg border border-b-0 border-border bg-card p-3">
+								label="Change agent identity"
+								header={
+									<div className="border-b border-border bg-card p-3">
 										<ImageUpload
 											currentUrl={currentImageUrl}
 											file={imageFile}
@@ -971,14 +889,9 @@ export default function AgentEditor({
 											previewShape="circle"
 										/>
 									</div>
-									<EmojiPicker
-										autoFocusSearch
-										onEmojiClick={handleEmojiClick}
-										theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
-										skinTonesDisabled
-										previewConfig={{ showPreview: false }}
-									/>
-									<div className="flex items-center justify-center gap-2 rounded-b-lg border-t border-border bg-card px-3 py-2">
+								}
+								footer={
+									<div className="flex items-center justify-center gap-2 border-t border-border bg-card px-3 py-2">
 										{AGENT_COLORS.map((c) => (
 											<button
 												key={c}
@@ -1014,8 +927,42 @@ export default function AgentEditor({
 											/>
 										</label>
 									</div>
-								</div>
-							)}
+								}
+							>
+							<button
+								type="button"
+								disabled={readOnly}
+								aria-label={readOnly ? undefined : "Change agent identity"}
+								title={readOnly ? undefined : "Change identity"}
+								onKeyDown={(event) => {
+									if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+									event.preventDefault();
+									setShowEmojiPicker(true);
+								}}
+								className="relative flex size-12 cursor-pointer items-center justify-center rounded-full text-2xl transition-opacity hover:opacity-90 disabled:cursor-default disabled:hover:opacity-100"
+							>
+								{imageFile ? (
+									<ImageFilePreview file={imageFile} className="rounded-full" />
+								) : (
+									<AgentAvatar
+										agentId={agent?.id}
+										name={form.name}
+										imageRevision={
+											removeImage ? null : agent?.imageRevision
+										}
+										color={form.color}
+										emoji={form.emoji}
+										size="md"
+										className="pointer-events-none size-full"
+									/>
+								)}
+								{!readOnly && (
+									<span className="absolute -bottom-[5px] -right-[5px] flex size-[18px] items-center justify-center rounded-full border border-input bg-card shadow-raised">
+										<Pencil className="size-[9px] text-subtle dark:text-panel-body" />
+									</span>
+								)}
+							</button>
+							</EmojiPickerPopover>
 						</div>
 						{readOnly ? (
 							// Most viewers never edit — the identity reads as plain text,

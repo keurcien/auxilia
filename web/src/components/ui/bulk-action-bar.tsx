@@ -24,6 +24,8 @@ interface BulkActionBarProps {
 	actionIcon?: React.ReactNode;
 	/** Several actions, in display order. */
 	actions?: BulkAction[];
+	/** Overflow menu rendered before the actions. */
+	menu?: React.ReactNode;
 	/** Disables the actions while one runs. */
 	busy?: boolean;
 	showWhenEmpty?: boolean;
@@ -41,6 +43,7 @@ export function BulkActionBar({
 	onAction,
 	actionIcon = <Trash2 className="size-3.5" />,
 	actions,
+	menu,
 	busy = false,
 	showWhenEmpty = false,
 	className,
@@ -96,6 +99,7 @@ export function BulkActionBar({
 				Clear
 			</button>
 			<div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+				{menu}
 				{items.map((action) => (
 					<button
 						key={action.label}

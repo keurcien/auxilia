@@ -40,7 +40,11 @@ import * as projectsApi from "@/lib/api/resources/projects";
 import { PETROL_MONO_THEME } from "@/lib/shiki-petrol-mono";
 import ScheduleBuilder from "@/app/(protected)/triggers/components/schedule-builder";
 import NextRunsCard from "@/app/(protected)/triggers/components/next-runs-card";
-import TriggerResources from "@/app/(protected)/triggers/components/trigger-resources";
+import TriggerResources, {
+	triggerResourceTabs,
+	useTriggerAgent,
+	type TriggerRightTab,
+} from "@/app/(protected)/triggers/components/trigger-resources";
 import { useTriggerDefaultModel } from "@/app/(protected)/triggers/components/use-trigger-default-model";
 
 const slugify = (name: string) =>
@@ -164,8 +168,8 @@ interface TriggerEditorProps {
 	triggerType?: TriggerType;
 	onSaved: (trigger: Trigger) => void;
 	onCancel?: () => void;
-	initialRightTab?: "frequency" | "resources";
-	onRightTabChange?: (tab: "frequency" | "resources") => void;
+	initialRightTab?: TriggerRightTab;
+	onRightTabChange?: (tab: TriggerRightTab) => void;
 }
 
 export default function TriggerEditor({
@@ -194,9 +198,8 @@ export default function TriggerEditor({
 	const [form, setForm] = useState<TriggerFormState>(initialForm);
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [rightTab, setRightTab] = useState<"frequency" | "resources">(
-		initialRightTab,
-	);
+	const [rightTab, setRightTab] = useState<TriggerRightTab>(initialRightTab);
+	const agentState = useTriggerAgent(form.agentId);
 	const availableGroups = useMemo(() => groupOptions(triggers), [triggers]);
 
 	useEffect(() => {
@@ -614,7 +617,7 @@ export default function TriggerEditor({
 								key: "frequency",
 								label: type === "schedule" ? "Frequency" : "Webhook",
 							},
-							{ key: "resources", label: "Resources" },
+							...triggerResourceTabs(agentState.agent),
 						]}
 						value={rightTab}
 						onChange={(tab) => {
@@ -625,9 +628,10 @@ export default function TriggerEditor({
 					/>
 
 					<div className="pt-5">
-						{rightTab === "resources" ? (
+						{rightTab !== "frequency" ? (
 							<TriggerResources
-								agentId={form.agentId}
+								kind={rightTab}
+								agentState={agentState}
 								disabledMcpServerIds={form.disabledMcpServerIds}
 								disabledSkillIds={form.disabledSkillIds}
 								disabledSandboxIds={form.disabledSandboxIds}

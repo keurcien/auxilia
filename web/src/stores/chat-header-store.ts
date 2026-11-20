@@ -1,6 +1,16 @@
 import { create } from "zustand";
 import type { ThreadCost } from "@/lib/api/resources/thread-costs";
 
+/** The project a conversation lives in (or will be created in). */
+export interface ChatHeaderProject {
+  id: string;
+  name: string;
+  emoji: string | null;
+  /** Folder path inside the project, e.g. "Specs / Drafts". */
+  folderPath: string | null;
+  href: string;
+}
+
 interface ChatHeaderState {
   /** The thread's agent — the header links to its page when set. */
   agentId: string | null;
@@ -16,6 +26,8 @@ interface ChatHeaderState {
   /** The open thread's cost estimate, shown beside its model. */
   cost: ThreadCost | null;
   setCost: (cost: ThreadCost | null) => void;
+  project: ChatHeaderProject | null;
+  setProject: (project: ChatHeaderProject | null) => void;
   /** Right-hand slot in the header; chat pages portal actions into it. */
   actionsEl: HTMLElement | null;
   setActionsEl: (element: HTMLElement | null) => void;
@@ -50,6 +62,10 @@ export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
   setCost: (cost) => {
     set({ cost });
   },
+  project: null,
+  setProject: (project) => {
+    set({ project });
+  },
   actionsEl: null,
   setActionsEl: (actionsEl) => {
     set({ actionsEl });
@@ -81,6 +97,7 @@ export const useChatHeaderStore = create<ChatHeaderState>((set) => ({
       triggerName: null,
       triggerRunAt: null,
       cost: null,
+      project: null,
     });
   },
 }));

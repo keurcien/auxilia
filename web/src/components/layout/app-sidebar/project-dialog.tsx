@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react";
+import { useEffect, useState } from "react";
 import { Folder, X } from "lucide-react";
-import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
 import {
@@ -15,6 +13,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { EmojiPickerPopover } from "@/components/ui/emoji-picker-popover";
 import { VisibilityPicker } from "@/components/ui/visibility-picker";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -30,7 +29,6 @@ export function ProjectDialog({
 	onOpenChange: (open: boolean) => void;
 	project: Project | null;
 }) {
-	const { resolvedTheme } = useTheme();
 	const createProject = useProjectsStore((state) => state.createProject);
 	const updateProject = useProjectsStore((state) => state.updateProject);
 	const [name, setName] = useState("");
@@ -41,7 +39,6 @@ export function ProjectDialog({
 	const [teamIds, setTeamIds] = useState<string[]>([]);
 	const [saving, setSaving] = useState(false);
 	const [pickerOpen, setPickerOpen] = useState(false);
-	const emojiTriggerRef = useRef<HTMLButtonElement>(null);
 
 	useEffect(() => {
 		if (!open) return;
@@ -80,26 +77,9 @@ export function ProjectDialog({
 		}
 	};
 
-	const selectEmoji = (data: EmojiClickData) => {
-		setEmoji(data.emoji);
-		setPickerOpen(false);
-		requestAnimationFrame(() => {
-			emojiTriggerRef.current?.focus();
-		});
-	};
-
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent
-				onEscapeKeyDown={(event) => {
-					if (!pickerOpen) return;
-					event.preventDefault();
-					setPickerOpen(false);
-					requestAnimationFrame(() => {
-						emojiTriggerRef.current?.focus();
-					});
-				}}
-			>
+			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>{project ? "Edit project" : "Create project"}</DialogTitle>
 					<DialogDescription>
@@ -114,12 +94,15 @@ export function ProjectDialog({
 						Name and icon
 					</label>
 					<div className="flex items-center gap-2">
-						<div className="relative">
+						<EmojiPickerPopover
+							open={pickerOpen}
+							onOpenChange={setPickerOpen}
+							onSelect={setEmoji}
+							label="Choose project emoji"
+						>
 							<button
-								ref={emojiTriggerRef}
 								type="button"
 								aria-label="Choose project emoji"
-								aria-expanded={pickerOpen}
 								onKeyDown={(event) => {
 									if (
 										event.key !== "ArrowDown" &&
@@ -130,31 +113,11 @@ export function ProjectDialog({
 									event.preventDefault();
 									setPickerOpen(true);
 								}}
-								onClick={() => {
-									setPickerOpen((value) => !value);
-								}}
-								className="flex size-10 cursor-pointer items-center justify-center rounded-[9px] border border-input bg-card text-lg outline-none transition-colors hover:border-border-hover focus-visible:ring-2 focus-visible:ring-ring/30"
+								className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-[9px] border border-input bg-card text-lg outline-none transition-colors hover:border-border-hover focus-visible:ring-2 focus-visible:ring-ring/30"
 							>
 								{emoji ?? <Folder className="size-4 text-petrol" />}
 							</button>
-							{pickerOpen && (
-								<div
-									role="region"
-									aria-label="Choose project emoji"
-									className="absolute left-0 top-full z-[80] mt-2 shadow-xl"
-								>
-									<EmojiPicker
-										autoFocusSearch
-										onEmojiClick={selectEmoji}
-										theme={
-											resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT
-										}
-										skinTonesDisabled
-										previewConfig={{ showPreview: false }}
-									/>
-								</div>
-							)}
-						</div>
+						</EmojiPickerPopover>
 						<input
 							id="project-name"
 							autoFocus

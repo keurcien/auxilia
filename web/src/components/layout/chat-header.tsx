@@ -5,16 +5,31 @@ import {
 	Bell,
 	BellOff,
 	Brain,
+	Folder,
+	FolderInput,
 	LoaderCircle,
 	MoreHorizontal,
 	Settings2,
 } from "lucide-react";
-import { useCallback, useState, type ReactNode } from "react";
+import {
+	createContext,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+	type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useChatHeaderStore } from "@/stores/chat-header-store";
+import {
+	type ChatHeaderProject,
+	useChatHeaderStore,
+} from "@/stores/chat-header-store";
 import { useModelsStore } from "@/stores/models-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import { getProjectFolderPath } from "@/lib/project-folders";
 import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
 import {
 	HoverCard,
@@ -129,21 +144,26 @@ function CostBreakdown({ cost }: { cost: ThreadCost }) {
 	);
 }
 
-function ModelCostPill() {
+function useHeaderModelCost() {
 	const modelId = useChatHeaderStore((state) => state.modelId);
 	const cost = useChatHeaderStore((state) => state.cost);
 	const model = useModelsStore((state) =>
 		state.models.find((candidate) => candidate.id === modelId),
 	);
+	const showCost = cost !== null && cost.callCount > 0;
+	const costLabel = !showCost
+		? null
+		: cost.unpricedCallCount === cost.callCount
+			? "Unavailable"
+			: `${cost.complete ? "" : "≥"}${formatPillCost(cost.knownCost)}`;
+	return { modelId, model, cost: showCost ? cost : null, costLabel };
+}
+
+function ModelCostPill() {
+	const { modelId, model, cost, costLabel } = useHeaderModelCost();
 	if (!modelId) return null;
 
-	const showCost = cost !== null && cost.callCount > 0;
-	const costUnavailable = showCost && cost.unpricedCallCount === cost.callCount;
-	const costLabel = costUnavailable
-		? "Unavailable"
-		: showCost
-			? `${cost.complete ? "" : "≥"}${formatPillCost(cost.knownCost)}`
-			: null;
+	const showCost = cost !== null;
 	const pill = (
 		<span
 			title={showCost ? undefined : `Model: ${modelId}`}
@@ -168,6 +188,215 @@ function ModelCostPill() {
 		</HoverCard>
 	) : (
 		pill
+	);
+}
+
+function ChatMobileModelCost() {
+	const { modelId, model, cost, costLabel } = useHeaderModelCost();
+	if (!modelId) return null;
+	return (
+		<section className="mb-6">
+			<div className="mb-2 px-1">
+				<h2 className="font-display text-[15px] font-semibold text-sidebar-foreground">
+					Model and cost
+				</h2>
+			</div>
+			<div className="overflow-hidden rounded-[12px] border border-sidebar-border bg-card">
+				<div className="flex min-h-14 items-center gap-2.5 px-4 py-2.5 text-[15px] font-semibold text-sidebar-foreground">
+					{model?.chefSlug && <ModelSelectorLogo provider={model.chefSlug} />}
+					<span className="min-w-0 truncate">{model?.name ?? modelId}</span>
+					{costLabel && (
+						<span className="ml-auto flex-none tabular-nums text-sidebar-muted">
+							{costLabel}
+						</span>
+					)}
+				</div>
+				<div className="border-t border-sidebar-border px-4 py-3">
+					{cost ? (
+						<CostBreakdown cost={cost} />
+					) : (
+						<p className="text-[13.5px] leading-5 text-sidebar-muted">
+							No model calls recorded yet.
+						</p>
+					)}
+				</div>
+			</div>
+		</section>
+	);
+}
+
+/**
+ * Publishes the conversation's project to the header. A project the viewer
+ * cannot see resolves to none.
+ */
+export function useChatHeaderProject(
+	projectId: string | null,
+	folderId: string | null,
+) {
+	const tree = useProjectsStore((state) => state.tree);
+	const setProject = useChatHeaderStore((state) => state.setProject);
+	const project = useMemo<ChatHeaderProject | null>(() => {
+		const match = projectId
+			? tree.find((candidate) => candidate.id === projectId)
+			: undefined;
+		if (!match) return null;
+		const folder = folderId
+			? match.folders.find((candidate) => candidate.id === folderId)
+			: undefined;
+		return {
+			id: match.id,
+			name: match.name,
+			emoji: match.emoji,
+			folderPath: folder ? getProjectFolderPath(folder, match.folders) : null,
+			href: folder
+				? `/projects/${match.id}?folder=${folder.id}`
+				: `/projects/${match.id}`,
+		};
+	}, [folderId, projectId, tree]);
+	useEffect(() => {
+		setProject(project);
+	}, [project, setProject]);
+	useEffect(
+		() => () => {
+			setProject(null);
+		},
+		[setProject],
+	);
+}
+
+function ProjectGlyph({
+	emoji,
+	className,
+}: {
+	emoji: string | null;
+	className?: string;
+}) {
+	return emoji ? (
+		<span aria-hidden className="shrink-0 leading-none">
+			{emoji}
+		</span>
+	) : (
+		<Folder className={`shrink-0 text-petrol dark:text-panel-terminal ${className ?? ""}`} />
+	);
+}
+
+/**
+ * Breadcrumb leading the header title: project, then folder. Desktop only
+ * beside a title; `standalone` (no title yet) shows it everywhere.
+ */
+function ProjectCrumb({ standalone = false }: { standalone?: boolean }) {
+	const project = useChatHeaderStore((state) => state.project);
+	if (!project) return null;
+	const label = project.folderPath
+		? `${project.name} / ${project.folderPath}`
+		: project.name;
+	return (
+		<span
+			className={
+				standalone
+					? "flex min-w-0 max-w-72 items-center"
+					: "hidden min-w-0 max-w-64 shrink items-center gap-2 md:flex"
+			}
+		>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<Link
+						href={project.href}
+						aria-label={`Open project ${label}`}
+						className="flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[12.5px] font-semibold text-subtle transition-colors hover:border-petrol/30 hover:text-petrol focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 dark:bg-white/5 dark:text-muted-foreground dark:hover:text-panel-terminal"
+					>
+						<ProjectGlyph emoji={project.emoji} className="size-3.5" />
+						<span className="truncate">{project.name}</span>
+						{project.folderPath && (
+							<span className="hidden min-w-0 truncate font-medium text-meta lg:inline dark:text-panel-dim">
+								/ {project.folderPath}
+							</span>
+						)}
+					</Link>
+				</TooltipTrigger>
+				<TooltipContent side="bottom" sideOffset={7}>
+					Open project
+				</TooltipContent>
+			</Tooltip>
+			{!standalone && (
+				<span aria-hidden className="text-ghost dark:text-panel-dim">
+					/
+				</span>
+			)}
+		</span>
+	);
+}
+
+export function ChatMoveToProjectButton({ onMove }: { onMove: () => void }) {
+	const inProject = useChatHeaderStore((state) => state.project !== null);
+	const label = inProject ? "Move to another project" : "Move to project";
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<button
+					type="button"
+					aria-label={label}
+					onClick={onMove}
+					className="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[11.5px] font-semibold text-meta transition-colors hover:bg-hover hover:text-foreground dark:bg-white/5"
+				>
+					<FolderInput className="size-3.5 shrink-0" />
+					<span className="hidden xl:inline">Move</span>
+				</button>
+			</TooltipTrigger>
+			<TooltipContent side="bottom" sideOffset={7}>
+				{label}
+			</TooltipContent>
+		</Tooltip>
+	);
+}
+
+const MobileActionsCloseContext = createContext<() => void>(() => {});
+
+export function ChatMobileProjectRow({ onMove }: { onMove: () => void }) {
+	const close = useContext(MobileActionsCloseContext);
+	const project = useChatHeaderStore((state) => state.project);
+	return (
+		<section className="mt-6">
+			<div className="mb-2 px-1">
+				<h2 className="font-display text-[15px] font-semibold text-sidebar-foreground">
+					Project
+				</h2>
+			</div>
+			<div className="flex min-h-14 items-center justify-between gap-4 rounded-[12px] border border-sidebar-border bg-card px-4 py-2.5">
+				{project ? (
+					<Link
+						href={project.href}
+						onClick={close}
+						className="flex min-w-0 items-center gap-2.5 text-[15px] font-semibold text-sidebar-foreground transition-colors hover:text-sidebar-active-icon"
+					>
+						<ProjectGlyph emoji={project.emoji} className="size-[18px]" />
+						<span className="min-w-0">
+							<span className="block truncate">{project.name}</span>
+							{project.folderPath && (
+								<span className="block truncate text-[13px] font-medium text-sidebar-muted">
+									{project.folderPath}
+								</span>
+							)}
+						</span>
+					</Link>
+				) : (
+					<span className="flex min-w-0 items-center gap-2.5 text-[15px] font-semibold text-sidebar-muted">
+						<Folder className="size-[18px] shrink-0" />
+						No project
+					</span>
+				)}
+				<button
+					type="button"
+					onClick={() => {
+						close();
+						onMove();
+					}}
+					className="flex h-10 shrink-0 touch-manipulation cursor-pointer items-center rounded-[8px] bg-petrol px-3.5 text-[14px] font-semibold text-white shadow-raised transition-[background-color,transform] hover:bg-petrol/90 active:scale-[0.98] dark:bg-white dark:text-ink dark:hover:bg-white/90"
+				>
+					Move
+				</button>
+			</div>
+		</section>
 	);
 }
 
@@ -214,6 +443,9 @@ export function ChatMobileActionsSheet({
 	const openMobileActions = useCallback(() => {
 		setOpen(true);
 	}, []);
+	const closeMobileActions = useCallback(() => {
+		setOpen(false);
+	}, []);
 
 	const {
 		contentRef,
@@ -254,7 +486,12 @@ export function ChatMobileActionsSheet({
 						Manage this conversation and its sharing settings.
 					</SheetDescription>
 				</SheetHeader>
-				<div className="overflow-y-auto p-5">{children}</div>
+				<div className="overflow-y-auto p-5">
+					<ChatMobileModelCost />
+					<MobileActionsCloseContext.Provider value={closeMobileActions}>
+						{children}
+					</MobileActionsCloseContext.Provider>
+				</div>
 			</SheetContent>
 		</Sheet>
 	);
@@ -510,6 +747,7 @@ export function ChatHeader() {
 	if (triggerName) {
 		return (
 			<HeaderBar className="text-[14px]">
+				<ProjectCrumb />
 				<div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-petrol-tint dark:bg-white/10">
 					<AlarmClock className="size-3.5 text-petrol dark:text-panel-terminal" />
 				</div>
@@ -544,11 +782,16 @@ export function ChatHeader() {
 	}
 
 	if (!agentName) {
-		return <HeaderBar />;
+		return (
+			<HeaderBar>
+				<ProjectCrumb standalone />
+			</HeaderBar>
+		);
 	}
 
 	return (
 		<HeaderBar>
+			<ProjectCrumb />
 			<AgentAvatar
 				agentId={agentId}
 				name={agentName}

@@ -37,7 +37,11 @@ import { Switch } from "@/components/ui/switch";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import TriggerEditor from "@/app/(protected)/triggers/components/trigger-editor";
 import TriggerSummaryBanner from "@/app/(protected)/triggers/components/trigger-summary-banner";
-import TriggerResources from "@/app/(protected)/triggers/components/trigger-resources";
+import TriggerResources, {
+	triggerResourceTabs,
+	useTriggerAgent,
+	type TriggerRightTab,
+} from "@/app/(protected)/triggers/components/trigger-resources";
 import TriggerSettingsSummary from "@/app/(protected)/triggers/components/trigger-settings-summary";
 import NextRunsCard from "@/app/(protected)/triggers/components/next-runs-card";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
@@ -49,9 +53,14 @@ const slugify = (name: string) =>
 
 interface TriggerDetailProps {
 	trigger: Trigger;
+	/** `?edit=1` from a list's row menu; ignored when the viewer can't manage. */
+	startInEdit?: boolean;
 }
 
-export default function TriggerDetail({ trigger }: TriggerDetailProps) {
+export default function TriggerDetail({
+	trigger,
+	startInEdit = false,
+}: TriggerDetailProps) {
 	const router = useRouter();
 	const confirmDialog = useConfirmDialog();
 	const upsertTrigger = useTriggersStore((state) => state.upsertTrigger);
@@ -67,14 +76,21 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 	const fetchAgents = useAgentsStore((state) => state.fetchAgents);
 	const defaultModel = useTriggerDefaultModel(liveTrigger.agentId);
 
-	const [mode, setMode] = useState<"read" | "edit">("read");
+	const [mode, setMode] = useState<"read" | "edit">(
+		startInEdit && trigger.canManage ? "edit" : "read",
+	);
+	const leaveEdit = () => {
+		setMode("read");
+		if (startInEdit) router.replace(`/triggers/${trigger.id}`);
+	};
 	const [isRunning, setIsRunning] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const [waitForAnswer, setWaitForAnswer] = useState(false);
 	const [appendInstructions, setAppendInstructions] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [rightTab, setRightTab] = useState<"frequency" | "resources">(
-		"frequency",
+	const [rightTab, setRightTab] = useState<TriggerRightTab>("frequency");
+	const agentState = useTriggerAgent(
+		mode === "read" ? liveTrigger.agentId : null,
 	);
 
 	useEffect(() => {
@@ -162,11 +178,9 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 				trigger={liveTrigger}
 				initialRightTab={rightTab}
 				onRightTabChange={setRightTab}
-				onSaved={() => {
-					setMode("read");
-				}}
+				onSaved={leaveEdit}
 				onCancel={() => {
-					setMode("read");
+					leaveEdit();
 				}}
 			/>
 		);
@@ -373,7 +387,7 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 										? "Frequency"
 										: "Webhook",
 							},
-							{ key: "resources", label: "Resources" },
+							...triggerResourceTabs(agentState.agent),
 						]}
 						value={rightTab}
 						onChange={setRightTab}
@@ -381,9 +395,10 @@ export default function TriggerDetail({ trigger }: TriggerDetailProps) {
 					/>
 
 					<div className="pt-5">
-						{rightTab === "resources" ? (
+						{rightTab !== "frequency" ? (
 							<TriggerResources
-								agentId={liveTrigger.agentId}
+								kind={rightTab}
+								agentState={agentState}
 								disabledMcpServerIds={liveTrigger.disabledMcpServerIds}
 								disabledSkillIds={liveTrigger.disabledSkillIds}
 								disabledSandboxIds={liveTrigger.disabledSandboxIds}

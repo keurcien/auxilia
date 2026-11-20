@@ -34,6 +34,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import {
 	ChatHeaderActions,
 	ChatMemoryToggle,
+	useChatHeaderProject,
 } from "@/components/layout/chat-header";
 
 const EMPTY_RESOURCE_SETTINGS: ThreadResourceSettings = {
@@ -54,6 +55,7 @@ const StarterChatPage = () => {
 	const agentId = params.id as string;
 	const projectId = searchParams.get("projectId");
 	const folderId = projectId ? searchParams.get("folderId") : null;
+	useChatHeaderProject(projectId, folderId);
 	const [isCreating, setIsCreating] = useState(false);
 	const [memoriesEnabled, setMemoriesEnabled] = useState(true);
 	const { modelSelection, starterAgent } = usePromptInputController();

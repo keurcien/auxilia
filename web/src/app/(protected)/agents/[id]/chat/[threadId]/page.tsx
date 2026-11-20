@@ -51,8 +51,12 @@ import {
   ChatMemoryToggle,
   ChatMobileActionsSheet,
   ChatMobileNotificationsRow,
+  ChatMobileProjectRow,
+  ChatMoveToProjectButton,
   ChatNotificationsToggle,
+  useChatHeaderProject,
 } from "@/components/layout/chat-header";
+import { ThreadPlacementDialog } from "@/components/layout/app-sidebar/thread-placement-dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -137,6 +141,7 @@ const ChatPage = () => {
   );
   const refreshThreads = useThreadsStore((state) => state.refreshThreads);
   const refreshProjectTree = useProjectsStore((state) => state.refreshTree);
+  const [moveOpen, setMoveOpen] = useState(false);
 
   const acknowledgeCurrentResponse = () => {
     acknowledgedAssistantId.current =
@@ -492,6 +497,22 @@ const ChatPage = () => {
 
   const notifications = useThreadNotifications(thread ?? null);
 
+  const projectId = thread?.projectId ?? null;
+  const folderId = thread?.folderId ?? null;
+  useChatHeaderProject(projectId, folderId);
+  const placementTarget = useMemo(
+    () => ({
+      id: threadId,
+      title: thread?.firstMessageContent?.trim() || "this conversation",
+      projectId,
+      folderId,
+    }),
+    [folderId, projectId, thread?.firstMessageContent, threadId],
+  );
+  const openMoveDialog = () => {
+    setMoveOpen(true);
+  };
+
   const memoriesEnabled =
     memoryOverride?.threadId === threadId
       ? memoryOverride.enabled
@@ -762,6 +783,9 @@ const ChatPage = () => {
           {meta.viewerRole === null && (
             <ChatNotificationsToggle notifications={notifications} />
           )}
+          {meta.viewerRole === null && (
+            <ChatMoveToProjectButton onMove={openMoveDialog} />
+          )}
         </ChatHeaderLeadingActions>
       )}
       {meta.status === "ready" && (
@@ -877,6 +901,10 @@ const ChatPage = () => {
             </div>
           </section>
 
+          {meta.viewerRole === null && (
+            <ChatMobileProjectRow onMove={openMoveDialog} />
+          )}
+
           <section className="mt-6">
             <div className="mb-2 px-1">
               <h2 className="font-display text-[15px] font-semibold text-sidebar-foreground">
@@ -936,6 +964,16 @@ const ChatPage = () => {
             </section>
           )}
         </ChatMobileActionsSheet>
+      )}
+      {meta.viewerRole === null && (
+        <ThreadPlacementDialog
+          open={moveOpen}
+          onOpenChange={setMoveOpen}
+          thread={placementTarget}
+          onMoved={() => {
+            void recheckThreadMetadata();
+          }}
+        />
       )}
       <div className="h-full flex flex-col w-full overflow-hidden">
         <div className="h-full relative flex flex-1 flex-col min-h-0 w-full">

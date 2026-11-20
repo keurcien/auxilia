@@ -1,9 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react";
+import { useState } from "react";
 import { Loader2, SmilePlus, X } from "lucide-react";
-import { useTheme } from "next-themes";
 
 import {
 	Dialog,
@@ -14,6 +12,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { EmojiPickerPopover } from "@/components/ui/emoji-picker-popover";
 import { ImageFilePreview, ImageUpload } from "@/components/ui/image-upload";
 import { WorkspaceAvatar } from "@/components/ui/workspace-avatar";
 import * as workspacesApi from "@/lib/api/resources/workspaces";
@@ -30,7 +29,6 @@ export function CreateWorkspaceDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const { resolvedTheme } = useTheme();
 	const createWorkspace = useWorkspacesStore((state) => state.createWorkspace);
 	const updateWorkspace = useWorkspacesStore((state) => state.updateWorkspace);
 	const setWorkspaceImageRevision = useWorkspacesStore(
@@ -41,7 +39,6 @@ export function CreateWorkspaceDialog({
 	const [color, setColor] = useState<string | null>(null);
 	const [imageFile, setImageFile] = useState<File | null>(null);
 	const [pickerOpen, setPickerOpen] = useState(false);
-	const emojiTriggerRef = useRef<HTMLButtonElement>(null);
 	const [createdWorkspaceId, setCreatedWorkspaceId] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
@@ -58,14 +55,6 @@ export function CreateWorkspaceDialog({
 			setError(null);
 		}
 		onOpenChange(nextOpen);
-	};
-
-	const selectEmoji = (data: EmojiClickData) => {
-		setEmoji(data.emoji);
-		setPickerOpen(false);
-		requestAnimationFrame(() => {
-			emojiTriggerRef.current?.focus();
-		});
 	};
 
 	const submit = async (event: React.FormEvent) => {
@@ -110,14 +99,6 @@ export function CreateWorkspaceDialog({
 			<DialogContent
 				showCloseButton={!submitting}
 				onEscapeKeyDown={(event) => {
-					if (pickerOpen) {
-						event.preventDefault();
-						setPickerOpen(false);
-						requestAnimationFrame(() => {
-							emojiTriggerRef.current?.focus();
-						});
-						return;
-					}
 					if (submitting) event.preventDefault();
 				}}
 				onPointerDownOutside={(event) => {
@@ -172,39 +153,26 @@ export function CreateWorkspaceDialog({
 							Emoji and color
 						</span>
 						<div className="flex items-center gap-2">
-							<div className="relative">
+							<EmojiPickerPopover
+								open={pickerOpen}
+								onOpenChange={setPickerOpen}
+								onSelect={setEmoji}
+								label="Choose workspace emoji"
+							>
 								<button
-									ref={emojiTriggerRef}
 									type="button"
 									disabled={submitting}
 									aria-label="Choose workspace emoji"
-									aria-expanded={pickerOpen}
 									onKeyDown={(event) => {
 										if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
 										event.preventDefault();
 										setPickerOpen(true);
 									}}
-									onClick={() => { setPickerOpen((value) => !value); }}
 									className="flex size-9 cursor-pointer items-center justify-center rounded-[8px] border border-input bg-card text-lg outline-none transition-colors hover:border-border-hover focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50"
 								>
 									{emoji || <SmilePlus className="size-4 text-meta" />}
 								</button>
-								{pickerOpen && (
-									<div
-										role="region"
-										aria-label="Choose workspace emoji"
-										className="absolute left-0 top-full z-50 mt-2 shadow-xl"
-									>
-										<EmojiPicker
-											autoFocusSearch
-											onEmojiClick={selectEmoji}
-											theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
-											skinTonesDisabled
-											previewConfig={{ showPreview: false }}
-										/>
-									</div>
-								)}
-							</div>
+							</EmojiPickerPopover>
 							{emoji && (
 								<button
 									type="button"

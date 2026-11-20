@@ -231,10 +231,22 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
         self,
         agent_id: UUID,
         selection: dict[str, list[UUID] | dict[UUID, list[str]] | None],
+        stored: TriggerDB | None = None,
     ) -> dict[str, list[str] | dict[str, list[str]] | None]:
-        """Validate explicit trigger overrides against the selected agent graph."""
+        """Validate explicit trigger overrides against the selected agent graph.
+
+        `stored` is the trigger being edited on the same agent: ids it already
+        holds stay accepted after their resource left the agent, so detaching
+        an MCP server, skill, sandbox or subagent never locks the trigger's
+        editor (the editor sends every saved id back).
+        """
         if not selection:
             return {}
+
+        def saved_ids(field: str) -> set[UUID]:
+            return {UUID(value) for value in (getattr(stored, field, None) or [])}
+
+        saved_tools = (stored.disabled_mcp_tools if stored else None) or {}
         spec = await AgentRepository(self.db, self.workspace_id).get_run_spec(agent_id)
         if spec is None:
             raise NotFoundError("Agent not found")
@@ -251,6 +263,10 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             selected_ids.get("disabled_skill_ids", []),
             selected_ids.get("disabled_sandbox_ids", []),
             selected_ids.get("disabled_subagent_ids", []),
+            tolerated_mcp_ids=saved_ids("disabled_mcp_server_ids"),
+            tolerated_skill_ids=saved_ids("disabled_skill_ids"),
+            tolerated_sandbox_ids=saved_ids("disabled_sandbox_ids"),
+            tolerated_subagent_ids=saved_ids("disabled_subagent_ids"),
         )
         result: dict[str, list[str] | dict[str, list[str]] | None] = {
             field: normalized[index] if selection.get(field) is not None else None
@@ -282,8 +298,15 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                     for server_id, tool_names in safe_defaults.items()
                 }
                 for server_id, tool_names in tool_selection.items():
-                    unknown = set(tool_names) - available.get(server_id, set())
-                    if server_id not in available or unknown:
+                    unknown = (
+                        set(tool_names)
+                        - available.get(server_id, set())
+                        - set(saved_tools.get(str(server_id), []))
+                    )
+                    known_server = (
+                        server_id in available or str(server_id) in saved_tools
+                    )
+                    if not known_server or unknown:
                         raise DomainValidationError(
                             "Tool selection contains tools unavailable to this agent"
                         )
@@ -654,6 +677,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 update=await self._normalize_resource_selection(
                     update_data.get("agent_id", trigger.agent_id),
                     resource_selection,
+                    stored=None if agent_changed else trigger,
                 )
             )
         reactivating = data.is_active is True and not trigger.is_active

@@ -9,10 +9,8 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
-import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTheme } from "next-themes";
 import {
 	AlarmClock,
 	Check,
@@ -28,6 +26,7 @@ import {
 	Mail,
 	MailOpen,
 	MessageSquare,
+	MoreHorizontal,
 	MoreVertical,
 	PanelRight,
 	Search,
@@ -51,12 +50,17 @@ import {
 	type BulkFailure,
 } from "@/components/ui/bulk-confirm-dialog";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { EmojiPickerPopover } from "@/components/ui/emoji-picker-popover";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
 import { ThreadUnreadBadge } from "@/components/ui/thread-unread-badge";
 import { UsageBadge } from "@/components/usage/usage-badge";
 import { VisibilityPicker } from "@/components/ui/visibility-picker";
 import { ConversationCompletionButton } from "@/components/layout/app-sidebar/conversation-completion-button";
 import { FolderDialog } from "@/components/layout/app-sidebar/folder-dialog";
+import {
+	type BulkThread,
+	ThreadBulkMenu,
+} from "@/components/layout/app-sidebar/thread-bulk-menu";
 import {
 	ThreadPlacementDialog,
 	type ThreadPlacementTarget,
@@ -134,16 +138,12 @@ function titleOf(thread: ProjectThread): string {
 }
 
 function ProjectIdentityHeading({ project }: { project: ProjectDetail }) {
-	const { resolvedTheme } = useTheme();
 	const updateProject = useProjectsStore((state) => state.updateProject);
 	const [name, setName] = useState(project.name);
 	const [emoji, setEmoji] = useState(project.emoji);
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [pending, setPending] = useState(0);
 	const committedNameRef = useRef(project.name);
-	const emojiTriggerRef = useRef<HTMLButtonElement>(null);
-	const emojiPickerRef = useRef<HTMLDivElement>(null);
-
 	useEffect(() => {
 		setName(project.name);
 		committedNameRef.current = project.name;
@@ -152,22 +152,6 @@ function ProjectIdentityHeading({ project }: { project: ProjectDetail }) {
 	useEffect(() => {
 		setEmoji(project.emoji);
 	}, [project.emoji]);
-
-	useEffect(() => {
-		if (!pickerOpen) return;
-		const closeOnOutsidePointer = (event: PointerEvent) => {
-			if (
-				emojiPickerRef.current &&
-				!emojiPickerRef.current.contains(event.target as Node)
-			) {
-				setPickerOpen(false);
-			}
-		};
-		document.addEventListener("pointerdown", closeOnOutsidePointer);
-		return () => {
-			document.removeEventListener("pointerdown", closeOnOutsidePointer);
-		};
-	}, [pickerOpen]);
 
 	const saveName = async () => {
 		const next = name.trim();
@@ -201,9 +185,6 @@ function ProjectIdentityHeading({ project }: { project: ProjectDetail }) {
 		setEmoji(next);
 		setPickerOpen(false);
 		setPending((value) => value + 1);
-		requestAnimationFrame(() => {
-			emojiTriggerRef.current?.focus();
-		});
 		try {
 			await updateProject(project.id, { emoji: next });
 		} catch (error) {
@@ -231,58 +212,44 @@ function ProjectIdentityHeading({ project }: { project: ProjectDetail }) {
 
 	return (
 		<div className="flex min-w-0 items-center gap-1.5">
-			<div ref={emojiPickerRef} className="relative shrink-0">
+			<EmojiPickerPopover
+				open={pickerOpen}
+				onOpenChange={setPickerOpen}
+				onSelect={(next) => {
+					void saveEmoji(next);
+				}}
+				label="Change project emoji"
+				header={
+					emoji && (
+						<button
+							type="button"
+							onClick={() => {
+								void saveEmoji(null);
+							}}
+							className="flex h-9 w-full cursor-pointer items-center gap-2 border-b border-border bg-card px-3 text-left text-[11.5px] font-semibold text-label transition-colors hover:bg-hover dark:hover:bg-white/10"
+						>
+							<Folder className="size-3.5 text-petrol" />
+							Use folder icon
+						</button>
+					)
+				}
+			>
 				<button
-					ref={emojiTriggerRef}
 					type="button"
 					aria-label="Change project emoji"
-					aria-expanded={pickerOpen}
 					onPointerDown={(event) => {
 						event.preventDefault();
 					}}
 					onKeyDown={(event) => {
-						if (event.key === "Escape" && pickerOpen) {
-							event.preventDefault();
-							setPickerOpen(false);
-							return;
-						}
 						if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
 						event.preventDefault();
 						setPickerOpen(true);
 					}}
-					onClick={() => {
-						setPickerOpen((value) => !value);
-					}}
-					className="flex size-8 cursor-pointer items-center justify-center rounded-[7px] border border-transparent text-[18px] outline-none transition-colors hover:border-border hover:bg-card focus-visible:border-petrol focus-visible:ring-2 focus-visible:ring-ring/30"
+					className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-transparent text-[18px] outline-none transition-colors hover:border-border hover:bg-card focus-visible:border-petrol focus-visible:ring-2 focus-visible:ring-ring/30"
 				>
 					{emoji ?? <Folder className="size-4 text-petrol" />}
 				</button>
-				{pickerOpen && (
-					<div className="absolute left-0 top-full z-[60] mt-2 overflow-hidden rounded-[10px] border border-border bg-card shadow-xl">
-						{emoji && (
-							<button
-								type="button"
-								onClick={() => {
-									void saveEmoji(null);
-								}}
-								className="flex h-9 w-full cursor-pointer items-center gap-2 border-b border-border px-3 text-left text-[11.5px] font-semibold text-label transition-colors hover:bg-hover dark:hover:bg-white/10"
-							>
-								<Folder className="size-3.5 text-petrol" />
-								Use folder icon
-							</button>
-						)}
-						<EmojiPicker
-							autoFocusSearch
-							onEmojiClick={(data: EmojiClickData) => {
-								void saveEmoji(data.emoji);
-							}}
-							theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
-							skinTonesDisabled
-							previewConfig={{ showPreview: false }}
-						/>
-					</div>
-				)}
-			</div>
+			</EmojiPickerPopover>
 			<input
 				value={name}
 				maxLength={255}
@@ -1035,7 +1002,6 @@ export default function ProjectDetailView({
 	const [infoOpen, setInfoOpen] = useState(false);
 	const [folderDialog, setFolderDialog] = useState<FolderDialogState>(null);
 	const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
-	const [bulkBusy, setBulkBusy] = useState(false);
 	// Set when deleting one conversation from its menu instead of the selection.
 	const [deleteTarget, setDeleteTarget] = useState<ProjectThread | null>(null);
 	const [movingThread, setMovingThread] =
@@ -1349,7 +1315,10 @@ export default function ProjectDetailView({
 		canDeleteThreads && thread.canDelete;
 	// Completed conversations have no read state.
 	const isSelectable = (thread: ProjectThread) =>
-		thread.completedAt === null || thread.canComplete || isDeletable(thread);
+		thread.completedAt === null ||
+		thread.canComplete ||
+		thread.canManage ||
+		isDeletable(thread);
 	const selectableThreadIds = visibleThreads
 		.filter(isSelectable)
 		.map((thread) => thread.id);
@@ -1364,99 +1333,20 @@ export default function ProjectDetailView({
 		? [deleteTarget]
 		: selectedThreads.filter(isDeletable);
 
-	const runBulk = async (
-		targets: ProjectThread[],
-		update: (thread: ProjectThread) => Promise<unknown>,
-	) => {
-		setBulkBusy(true);
-		try {
-			const results = await Promise.allSettled(targets.map(update));
-			const failed = results.filter(
-				(result) => result.status === "rejected",
-			).length;
-			if (failed > 0) {
-				toast.error(
-					failed === targets.length
-						? "The conversations could not be updated."
-						: `${failed} of ${targets.length} conversations could not be updated.`,
-				);
-			}
-			await refreshDetail(detail.id);
-		} finally {
-			setBulkBusy(false);
-		}
-	};
-
 	const withCount = (label: string, count: number) =>
 		count === selectedThreads.length ? label : `${label} (${count})`;
-	const openSelected = selectedThreads.filter(
-		(thread) => thread.completedAt === null,
-	);
-	const toMarkRead = openSelected.filter((thread) => thread.isUnread);
-	const toMarkUnread = openSelected.filter((thread) => !thread.isUnread);
-	const completableSelected = selectedThreads.filter(
-		(thread) => thread.canComplete,
-	);
-	const toComplete = completableSelected.filter(
-		(thread) => thread.completedAt === null,
-	);
-	const toReopen = completableSelected.filter(
-		(thread) => thread.completedAt !== null,
-	);
+	const bulkThreads: BulkThread[] = selectedThreads.map((thread) => ({
+		id: thread.id,
+		title: titleOf(thread),
+		completedAt: thread.completedAt,
+		isUnread: thread.isUnread,
+		projectId: detail.id,
+		folderId: thread.folderId,
+		canComplete: thread.canComplete,
+		canMove: thread.canManage,
+	}));
 	const deletableSelected = selectedThreads.filter(isDeletable);
 	const bulkActions: BulkAction[] = [
-		...(toMarkRead.length > 0
-			? [
-					{
-						label: withCount("Mark as read", toMarkRead.length),
-						icon: <MailOpen />,
-						onClick: () => {
-							void runBulk(toMarkRead, (thread) =>
-								setThreadReadState(thread.id, false),
-							);
-						},
-					},
-				]
-			: []),
-		...(toMarkUnread.length > 0
-			? [
-					{
-						label: withCount("Mark as unread", toMarkUnread.length),
-						icon: <Mail />,
-						onClick: () => {
-							void runBulk(toMarkUnread, (thread) =>
-								setThreadReadState(thread.id, true),
-							);
-						},
-					},
-				]
-			: []),
-		...(toComplete.length > 0
-			? [
-					{
-						label: withCount("Mark as complete", toComplete.length),
-						icon: <CircleCheck />,
-						onClick: () => {
-							void runBulk(toComplete, (thread) =>
-								setThreadCompleted(thread.id, true),
-							);
-						},
-					},
-				]
-			: []),
-		...(toReopen.length > 0
-			? [
-					{
-						label: withCount("Reopen", toReopen.length),
-						icon: <Undo2 />,
-						onClick: () => {
-							void runBulk(toReopen, (thread) =>
-								setThreadCompleted(thread.id, false),
-							);
-						},
-					},
-				]
-			: []),
 		...(deletableSelected.length > 0
 			? [
 					{
@@ -1815,8 +1705,29 @@ export default function ProjectDetailView({
 											someSelected={selection.someSelected}
 											onToggleAll={selection.toggleAll}
 											onClear={selection.clear}
+											menu={
+												bulkThreads.length > 0 && (
+													<ThreadBulkMenu
+														threads={bulkThreads}
+														trigger={
+															<button
+																type="button"
+																title="Bulk options"
+																aria-label={`Bulk options for ${bulkThreads.length} selected conversation${
+																	bulkThreads.length === 1 ? "" : "s"
+																}`}
+																className="inline-flex size-[30px] cursor-pointer items-center justify-center rounded-[7px] border border-border bg-card text-foreground transition-[border-color,transform] hover:border-border-hover active:translate-y-px data-[state=open]:border-border-hover dark:border-white/10 dark:hover:border-white/20"
+															>
+																<MoreHorizontal className="size-3.5" />
+															</button>
+														}
+														onUpdated={() => {
+															void refreshDetail(detail.id);
+														}}
+													/>
+												)
+											}
 											actions={bulkActions}
-											busy={bulkBusy}
 											showWhenEmpty
 										/>
 									)}

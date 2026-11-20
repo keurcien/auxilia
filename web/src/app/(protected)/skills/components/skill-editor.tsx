@@ -1,9 +1,7 @@
 "use client";
 
-import { cloneElement, useEffect, useMemo, useRef, useState } from "react";
+import { cloneElement, useMemo, useState } from "react";
 import Link from "next/link";
-import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react";
-import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import {
 	CircleAlert,
@@ -17,6 +15,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { EmojiPickerPopover } from "@/components/ui/emoji-picker-popover";
 import { GroupPicker } from "@/components/ui/group-picker";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import { VisibilityPicker } from "@/components/ui/visibility-picker";
@@ -176,7 +175,6 @@ export default function SkillEditor({
 	onTabChange,
 }: SkillEditorProps) {
 	const confirmDialog = useConfirmDialog();
-	const { resolvedTheme } = useTheme();
 	const createSkill = useSkillsStore((state) => state.createSkill);
 	const updateSkill = useSkillsStore((state) => state.updateSkill);
 	const setSkillImageRevision = useSkillsStore(
@@ -215,8 +213,6 @@ export default function SkillEditor({
 	const [showIdentityPicker, setShowIdentityPicker] = useState(false);
 	const [imageFile, setImageFile] = useState<File | null>(null);
 	const [removeImage, setRemoveImage] = useState(false);
-	const identityPickerRef = useRef<HTMLDivElement>(null);
-	const identityTriggerRef = useRef<HTMLButtonElement>(null);
 	const currentImageUrl =
 		skill?.id && skill.imageRevision
 			? skillsApi.skillImageUrl(skill.id, skill.imageRevision)
@@ -262,27 +258,6 @@ export default function SkillEditor({
 		!descriptionError &&
 		!bodyError &&
 		(draft.visibility !== "teams" || draft.teamIds.length > 0);
-
-	useEffect(() => {
-		if (!showIdentityPicker) return;
-		const close = (event: MouseEvent) => {
-			if (!identityPickerRef.current?.contains(event.target as Node)) {
-				setShowIdentityPicker(false);
-			}
-		};
-		document.addEventListener("mousedown", close);
-		return () => {
-			document.removeEventListener("mousedown", close);
-		};
-	}, [showIdentityPicker]);
-
-	const selectEmoji = (data: EmojiClickData) => {
-		setDraft((current) => ({ ...current, emoji: data.emoji }));
-		setShowIdentityPicker(false);
-		requestAnimationFrame(() => {
-			identityTriggerRef.current?.focus();
-		});
-	};
 
 	const handleSave = async () => {
 		if (!canSave) return;
@@ -471,74 +446,20 @@ export default function SkillEditor({
 				<div className="flex min-w-0 flex-col overflow-y-auto border-b border-border bg-background p-7 md:flex-[1.05] md:border-b-0 md:border-r [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 					<div className="flex min-w-0 items-start gap-4">
 						<div
-							ref={identityPickerRef}
 							className={cn(
-								"relative shrink-0",
+								"shrink-0",
 								!(readOnly || sourced || locked) && "mt-[22px]",
 							)}
-							onKeyDown={(event) => {
-								if (event.key !== "Escape" || !showIdentityPicker) return;
-								event.preventDefault();
-								event.stopPropagation();
-								setShowIdentityPicker(false);
-								requestAnimationFrame(() => {
-									identityTriggerRef.current?.focus();
-								});
-							}}
 						>
-							<button
-								ref={identityTriggerRef}
-								type="button"
-								disabled={readOnly || locked}
-								aria-label={
-									readOnly || locked
-										? undefined
-										: "Change skill identity"
-								}
-								aria-expanded={
-									readOnly || locked ? undefined : showIdentityPicker
-								}
-								onKeyDown={(event) => {
-									if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-									event.preventDefault();
-									setShowIdentityPicker(true);
+							<EmojiPickerPopover
+								open={showIdentityPicker}
+								onOpenChange={setShowIdentityPicker}
+								onSelect={(emoji) => {
+									setDraft((current) => ({ ...current, emoji }));
 								}}
-								onClick={() => {
-									setShowIdentityPicker((current) => !current);
-								}}
-								className="relative flex size-12 cursor-pointer items-center justify-center rounded-xl transition-opacity hover:opacity-90 disabled:cursor-default disabled:hover:opacity-100"
-							>
-								{imageFile ? (
-									<ImageFilePreview
-										file={imageFile}
-										className="rounded-xl"
-									/>
-								) : (
-									<SkillAvatar
-										skillId={skill?.id}
-										name={name}
-										emoji={draft.emoji}
-										color={draft.color}
-										imageRevision={
-											removeImage ? null : skill?.imageRevision
-										}
-										size="md"
-										className="pointer-events-none size-full"
-									/>
-								)}
-								{!(readOnly || locked) && (
-									<span className="absolute -bottom-[5px] -right-[5px] flex size-[18px] items-center justify-center rounded-full border border-input bg-card shadow-raised">
-										<Pencil className="size-[9px] text-subtle dark:text-panel-body" />
-									</span>
-								)}
-							</button>
-							{showIdentityPicker && (
-								<div
-									role="region"
-									aria-label="Change skill identity"
-									className="absolute left-0 top-full z-50 mt-2"
-								>
-									<div className="rounded-t-lg border border-b-0 border-border bg-card p-3">
+								label="Change skill identity"
+								header={
+									<div className="border-b border-border bg-card p-3">
 										<ImageUpload
 											currentUrl={currentImageUrl}
 											file={imageFile}
@@ -554,18 +475,9 @@ export default function SkillEditor({
 											label="Skill image"
 										/>
 									</div>
-									<EmojiPicker
-										autoFocusSearch
-										onEmojiClick={selectEmoji}
-										theme={
-											resolvedTheme === "dark"
-												? Theme.DARK
-												: Theme.LIGHT
-										}
-										skinTonesDisabled
-										previewConfig={{ showPreview: false }}
-									/>
-									<div className="flex items-center justify-center gap-2 rounded-b-lg border-t border-border bg-card px-3 py-2">
+								}
+								footer={
+									<div className="flex items-center justify-center gap-2 border-t border-border bg-card px-3 py-2">
 										{AGENT_COLORS.map((candidate) => (
 											<button
 												key={candidate}
@@ -609,8 +521,48 @@ export default function SkillEditor({
 											/>
 										</label>
 									</div>
-								</div>
-							)}
+								}
+							>
+							<button
+								type="button"
+								disabled={readOnly || locked}
+								aria-label={
+									readOnly || locked
+										? undefined
+										: "Change skill identity"
+								}
+								onKeyDown={(event) => {
+									if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+									event.preventDefault();
+									setShowIdentityPicker(true);
+								}}
+								className="relative flex size-12 cursor-pointer items-center justify-center rounded-xl transition-opacity hover:opacity-90 disabled:cursor-default disabled:hover:opacity-100"
+							>
+								{imageFile ? (
+									<ImageFilePreview
+										file={imageFile}
+										className="rounded-xl"
+									/>
+								) : (
+									<SkillAvatar
+										skillId={skill?.id}
+										name={name}
+										emoji={draft.emoji}
+										color={draft.color}
+										imageRevision={
+											removeImage ? null : skill?.imageRevision
+										}
+										size="md"
+										className="pointer-events-none size-full"
+									/>
+								)}
+								{!(readOnly || locked) && (
+									<span className="absolute -bottom-[5px] -right-[5px] flex size-[18px] items-center justify-center rounded-full border border-input bg-card shadow-raised">
+										<Pencil className="size-[9px] text-subtle dark:text-panel-body" />
+									</span>
+								)}
+							</button>
+							</EmojiPickerPopover>
 						</div>
 						{readOnly || sourced || locked ? (
 							<div className="min-w-0 flex-1">

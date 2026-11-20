@@ -1,9 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import EmojiPicker, { type EmojiClickData, Theme } from "emoji-picker-react";
+import { useState } from "react";
 import { AlertTriangle, Loader2, SmilePlus, Trash2, X } from "lucide-react";
-import { useTheme } from "next-themes";
 
 import {
 	Dialog,
@@ -14,6 +12,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { EmojiPickerPopover } from "@/components/ui/emoji-picker-popover";
 import { ImageFilePreview, ImageUpload } from "@/components/ui/image-upload";
 import { WorkspaceAvatar } from "@/components/ui/workspace-avatar";
 import * as workspacesApi from "@/lib/api/resources/workspaces";
@@ -35,7 +34,6 @@ export function EditWorkspaceDialog({
 	open,
 	onOpenChange,
 }: EditWorkspaceDialogProps) {
-	const { resolvedTheme } = useTheme();
 	const updateWorkspace = useWorkspacesStore((state) => state.updateWorkspace);
 	const setWorkspaceImageRevision = useWorkspacesStore(
 		(state) => state.setWorkspaceImageRevision,
@@ -46,7 +44,6 @@ export function EditWorkspaceDialog({
 	const [imageFile, setImageFile] = useState<File | null>(null);
 	const [removeImage, setRemoveImage] = useState(false);
 	const [pickerOpen, setPickerOpen] = useState(false);
-	const emojiTriggerRef = useRef<HTMLButtonElement>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
@@ -64,14 +61,6 @@ export function EditWorkspaceDialog({
 	const setOpen = (nextOpen: boolean) => {
 		if (!nextOpen && (saving || deleting || deleteOpen)) return;
 		onOpenChange(nextOpen);
-	};
-
-	const selectEmoji = (data: EmojiClickData) => {
-		setEmoji(data.emoji);
-		setPickerOpen(false);
-		requestAnimationFrame(() => {
-			emojiTriggerRef.current?.focus();
-		});
 	};
 
 	const submit = async (event: React.FormEvent) => {
@@ -131,14 +120,6 @@ export function EditWorkspaceDialog({
 				<DialogContent
 					showCloseButton={!saving && !deleting && !deleteOpen}
 					onEscapeKeyDown={(event) => {
-						if (pickerOpen) {
-							event.preventDefault();
-							setPickerOpen(false);
-							requestAnimationFrame(() => {
-								emojiTriggerRef.current?.focus();
-							});
-							return;
-						}
 						if (saving || deleting || deleteOpen) event.preventDefault();
 					}}
 					onPointerDownOutside={(event) => {
@@ -198,39 +179,26 @@ export function EditWorkspaceDialog({
 							Emoji and color
 						</span>
 						<div className="flex items-center gap-2">
-							<div className="relative">
+							<EmojiPickerPopover
+								open={pickerOpen}
+								onOpenChange={setPickerOpen}
+								onSelect={setEmoji}
+								label="Choose workspace emoji"
+							>
 								<button
-									ref={emojiTriggerRef}
 									type="button"
 									disabled={saving}
 									aria-label="Choose workspace emoji"
-									aria-expanded={pickerOpen}
 									onKeyDown={(event) => {
 										if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
 										event.preventDefault();
 										setPickerOpen(true);
 									}}
-									onClick={() => { setPickerOpen((value) => !value); }}
 									className="flex size-9 cursor-pointer items-center justify-center rounded-[8px] border border-input bg-card text-lg outline-none transition-colors hover:border-border-hover focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50"
 								>
 									{emoji || <SmilePlus className="size-4 text-meta" />}
 								</button>
-								{pickerOpen && (
-									<div
-										role="region"
-										aria-label="Choose workspace emoji"
-										className="absolute left-0 top-full z-50 mt-2 shadow-xl"
-									>
-										<EmojiPicker
-											autoFocusSearch
-											onEmojiClick={selectEmoji}
-											theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
-											skinTonesDisabled
-											previewConfig={{ showPreview: false }}
-										/>
-									</div>
-								)}
-							</div>
+							</EmojiPickerPopover>
 							{emoji && (
 								<button
 									type="button"

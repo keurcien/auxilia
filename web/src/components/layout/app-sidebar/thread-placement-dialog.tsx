@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -29,14 +29,20 @@ export interface ThreadPlacementTarget {
 	folderId: string | null;
 }
 
+/** Moves one conversation (`thread`) or several at once (`threads`). */
 export function ThreadPlacementDialog({
 	open,
 	onOpenChange,
 	thread,
+	threads,
+	onMoved,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	thread: ThreadPlacementTarget | null;
+	thread?: ThreadPlacementTarget | null;
+	/** Keep the array stable while open: a new one resets the picked placement. */
+	threads?: ThreadPlacementTarget[];
+	onMoved?: () => void;
 }) {
 	const projects = useProjectsStore((state) => state.tree);
 	const refreshTree = useProjectsStore((state) => state.refreshTree);
@@ -44,12 +50,25 @@ export function ThreadPlacementDialog({
 	const [projectId, setProjectId] = useState<string | null>(null);
 	const [folderId, setFolderId] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
+	const targets = useMemo(
+		() => threads ?? (thread ? [thread] : []),
+		[thread, threads],
+	);
 
 	useEffect(() => {
 		if (!open) return;
-		setProjectId(thread?.projectId ?? null);
-		setFolderId(thread?.folderId ?? null);
-	}, [open, thread]);
+		// Preselect the current placement only when every target shares it.
+		const [first] = targets;
+		const shared =
+			first !== undefined &&
+			targets.every(
+				(target) =>
+					target.projectId === first.projectId &&
+					target.folderId === first.folderId,
+			);
+		setProjectId(shared ? first.projectId : null);
+		setFolderId(shared ? first.folderId : null);
+	}, [open, targets]);
 
 	const selectedProject = projects.find((project) => project.id === projectId);
 	const folders = selectedProject?.folders ?? [];
@@ -94,28 +113,52 @@ export function ThreadPlacementDialog({
 	);
 
 	const save = async () => {
-		if (!thread || saving) return;
+		if (targets.length === 0 || saving) return;
 		setSaving(true);
 		try {
-			await setThreadPlacement(thread.id, projectId, folderId);
-			await refreshTree();
-			onOpenChange(false);
-		} catch (error) {
-			toast.error(
-				getApiErrorMessage(error, "The conversation could not be moved."),
+			const results = await Promise.allSettled(
+				targets.map((target) =>
+					setThreadPlacement(target.id, projectId, folderId),
+				),
 			);
+			const failures = results.filter(
+				(result): result is PromiseRejectedResult =>
+					result.status === "rejected",
+			);
+			await refreshTree();
+			if (failures.length < targets.length) onMoved?.();
+			if (failures.length === 0) {
+				onOpenChange(false);
+			} else if (targets.length === 1) {
+				toast.error(
+					getApiErrorMessage(
+						failures[0]?.reason,
+						"The conversation could not be moved.",
+					),
+				);
+			} else {
+				toast.error(
+					`${failures.length} of ${targets.length} conversations could not be moved.`,
+				);
+			}
 		} finally {
 			setSaving(false);
 		}
 	};
 
+	const bulk = targets.length > 1;
+
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Move conversation</DialogTitle>
+					<DialogTitle>
+						{bulk ? `Move ${targets.length} conversations` : "Move conversation"}
+					</DialogTitle>
 					<DialogDescription className="truncate">
-						Choose a project and folder for {thread?.title ?? "this conversation"}.
+						{bulk
+							? "Choose a project and folder for the selected conversations."
+							: `Choose a project and folder for ${targets[0]?.title ?? "this conversation"}.`}
 					</DialogDescription>
 				</DialogHeader>
 				<div className="grid gap-3 sm:grid-cols-2">
@@ -154,7 +197,7 @@ export function ThreadPlacementDialog({
 						Cancel
 					</DialogButton>
 					<DialogButton
-						disabled={!thread || saving}
+						disabled={targets.length === 0 || saving}
 						onClick={() => {
 							void save();
 						}}

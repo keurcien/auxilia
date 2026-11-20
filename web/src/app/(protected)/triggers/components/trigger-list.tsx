@@ -1,18 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
 	AlarmClock,
+	Bell,
+	CircleCheck,
 	Clock,
 	Copy,
+	FolderClosed,
 	Pause,
 	Pencil,
 	Play,
 	Plus,
+	Repeat1,
 	Trash2,
 	TriangleAlert,
 	Webhook,
+	type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import TriggerCard from "@/app/(protected)/triggers/components/trigger-card";
@@ -45,6 +51,9 @@ import {
 } from "@/lib/resource-scope-filter";
 import { useTriggersStore } from "@/stores/triggers-store";
 import { useAgentsStore } from "@/stores/agents-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import { getProjectFolderPath } from "@/lib/project-folders";
+import type { ProjectTree } from "@/types/projects";
 import type { Trigger } from "@/types/triggers";
 
 interface TriggerListProps {
@@ -62,6 +71,113 @@ function triggerFrequency(trigger: Trigger): string {
 	return trigger.triggerType === "schedule"
 		? describeSchedule(parseCronExpression(trigger.cronExpression))
 		: "Webhook";
+}
+
+interface TriggerPlacement {
+	href: string;
+	project: string;
+	folder: string | null;
+}
+
+/** Null when the trigger has no project or its project is not visible. */
+function triggerPlacement(
+	trigger: Trigger,
+	projects: ProjectTree[],
+): TriggerPlacement | null {
+	const project = projects.find((candidate) => candidate.id === trigger.projectId);
+	if (!project) return null;
+	const folder = project.folders.find(
+		(candidate) => candidate.id === trigger.folderId,
+	);
+	return {
+		href: folder
+			? `/projects/${project.id}?folder=${folder.id}`
+			: `/projects/${project.id}`,
+		project: project.emoji ? `${project.emoji} ${project.name}` : project.name,
+		folder: folder ? getProjectFolderPath(folder, project.folders) : null,
+	};
+}
+
+function TriggerProjectCell({
+	trigger,
+	projects,
+}: {
+	trigger: Trigger;
+	projects: ProjectTree[];
+}) {
+	if (!trigger.projectId) {
+		return (
+			<span className="text-[11.5px] text-ghost dark:text-panel-dim">
+				No project
+			</span>
+		);
+	}
+	const placement = triggerPlacement(trigger, projects);
+	if (!placement) {
+		return (
+			<span className="text-[11.5px] text-meta dark:text-panel-dim">
+				Project not visible
+			</span>
+		);
+	}
+	return (
+		<Link
+			href={placement.href}
+			title={
+				placement.folder
+					? `${placement.project} / ${placement.folder}`
+					: placement.project
+			}
+			onClick={(event) => {
+				event.stopPropagation();
+			}}
+			className="group flex min-w-0 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40"
+		>
+			<FolderClosed className="size-3.5 shrink-0 text-meta group-hover:text-petrol dark:group-hover:text-panel-terminal" />
+			<span className="min-w-0">
+				<span className="block truncate text-[12px] font-medium text-subtle group-hover:text-petrol group-hover:underline dark:text-muted-foreground dark:group-hover:text-panel-terminal">
+					{placement.project}
+				</span>
+				{placement.folder && (
+					<span className="block truncate text-[11px] text-meta dark:text-panel-dim">
+						{placement.folder}
+					</span>
+				)}
+			</span>
+		</Link>
+	);
+}
+
+function triggerOptions(trigger: Trigger): [string, LucideIcon, boolean][] {
+	return [
+		["Push notifications", Bell, trigger.notificationsEnabled],
+		["Run once", Repeat1, trigger.runOnce],
+		["Complete automatically", CircleCheck, trigger.autoComplete],
+	];
+}
+
+function TriggerOptionIcons({ trigger }: { trigger: Trigger }) {
+	return (
+		<div className="flex items-center gap-2.5">
+			{triggerOptions(trigger).map(([label, Icon, enabled]) => {
+				const description = `${label}: ${enabled ? "on" : "off"}`;
+				return (
+					<Icon
+						key={label}
+						role="img"
+						aria-label={description}
+						className={`size-3.5 shrink-0 ${
+							enabled
+								? "text-petrol dark:text-panel-terminal"
+								: "text-ghost opacity-60 dark:text-white/25"
+						}`}
+					>
+						<title>{description}</title>
+					</Icon>
+				);
+			})}
+		</div>
+	);
 }
 
 export default function TriggerList({
@@ -83,6 +199,8 @@ export default function TriggerList({
 	const deleteTrigger = useTriggersStore((state) => state.deleteTrigger);
 	const agents = useAgentsStore((state) => state.agents);
 	const fetchAgents = useAgentsStore((state) => state.fetchAgents);
+	const projects = useProjectsStore((state) => state.tree);
+	const fetchProjects = useProjectsStore((state) => state.fetchProjects);
 	const confirmDialog = useConfirmDialog();
 	const runTrigger = useRunTrigger();
 	const [bulkOpen, setBulkOpen] = useState(false);
@@ -90,7 +208,8 @@ export default function TriggerList({
 	useEffect(() => {
 		fetchTriggers().catch(() => {});
 		fetchAgents().catch(() => {});
-	}, [fetchTriggers, fetchAgents]);
+		fetchProjects().catch(() => {});
+	}, [fetchTriggers, fetchAgents, fetchProjects]);
 
 	const query = search.trim().toLowerCase();
 	const visibleTriggers = triggers.filter((trigger) => {
@@ -100,6 +219,7 @@ export default function TriggerList({
 		const agentName = agents.find(
 			(candidate) => candidate.id === trigger.agentId,
 		)?.name;
+		const placement = triggerPlacement(trigger, projects);
 		return [
 			trigger.name,
 			trigger.instructions,
@@ -107,6 +227,8 @@ export default function TriggerList({
 			trigger.timezone,
 			triggerFrequency(trigger),
 			agentName,
+			placement?.project,
+			placement?.folder,
 		].some((value) => value?.toLowerCase().includes(query));
 	});
 	const groupTree = useMemo(
@@ -217,7 +339,7 @@ export default function TriggerList({
 					</button>
 				</span>
 			),
-			width: "minmax(240px, 1.5fr)",
+			width: "minmax(220px, 1.5fr)",
 			cell: (trigger) => (
 				<div className="flex min-w-0 items-center gap-2.5">
 					<SelectableLeading
@@ -258,7 +380,7 @@ export default function TriggerList({
 		{
 			key: "agent",
 			header: "Agent",
-			width: "200px",
+			width: "170px",
 			cell: (trigger) => {
 				const agent = agents.find((candidate) => candidate.id === trigger.agentId);
 				return (
@@ -279,9 +401,17 @@ export default function TriggerList({
 			},
 		},
 		{
+			key: "project",
+			header: "Project",
+			width: "170px",
+			cell: (trigger) => (
+				<TriggerProjectCell trigger={trigger} projects={projects} />
+			),
+		},
+		{
 			key: "frequency",
 			header: "Frequency",
-			width: "210px",
+			width: "180px",
 			cell: (trigger) => (
 				<div className="flex min-w-0 items-center gap-2 text-[11.5px] text-subtle dark:text-muted-foreground">
 					{trigger.triggerType === "schedule" ? (
@@ -296,7 +426,7 @@ export default function TriggerList({
 		{
 			key: "nextRun",
 			header: "Next run",
-			width: "180px",
+			width: "160px",
 			cell: (trigger) => (
 				<span className="font-mono text-[11px] text-meta dark:text-panel-dim">
 					{trigger.triggerType === "webhook"
@@ -310,9 +440,15 @@ export default function TriggerList({
 			),
 		},
 		{
+			key: "options",
+			header: "Options",
+			width: "84px",
+			cell: (trigger) => <TriggerOptionIcons trigger={trigger} />,
+		},
+		{
 			key: "usage",
 			header: "This month",
-			width: "150px",
+			width: "140px",
 			hideBelowLg: true,
 			cell: (trigger) => (
 				<UsageBadge
@@ -356,7 +492,7 @@ export default function TriggerList({
 									label: "Edit",
 									icon: <Pencil />,
 									onClick: () => {
-										router.push(`/triggers/${trigger.id}`);
+										router.push(`/triggers/${trigger.id}?edit=1`);
 									},
 								},
 								...(canCreate
@@ -444,7 +580,7 @@ export default function TriggerList({
 				rowKey={(trigger) => trigger.id}
 				isLoading
 				scrollBody
-				minTableWidth="980px"
+				minTableWidth="1320px"
 				bleedOnNarrow
 			/>
 		) : null;
@@ -520,7 +656,7 @@ export default function TriggerList({
 						selection.toggle(trigger.id, shiftKey);
 					}}
 					scrollBody
-					minTableWidth="980px"
+					minTableWidth="1320px"
 					bleedOnNarrow
 					groupTree={{
 						...groupTree,

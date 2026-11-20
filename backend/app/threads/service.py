@@ -869,14 +869,20 @@ class ThreadService(BaseService[ThreadDB, ThreadRepository]):
             - available_subagent_ids
             - (tolerated_subagent_ids or set())
         )
-        if (
-            unknown_mcp_ids
-            or unknown_skill_ids
-            or unknown_sandbox_ids
-            or unknown_subagent_ids
-        ):
+        unknown = [
+            f"{kind} {resource_id}"
+            for kind, ids in (
+                ("MCP server", unknown_mcp_ids),
+                ("skill", unknown_skill_ids),
+                ("sandbox", unknown_sandbox_ids),
+                ("subagent", unknown_subagent_ids),
+            )
+            for resource_id in sorted(ids, key=str)
+        ]
+        if unknown:
             raise DomainValidationError(
-                "Thread resources must belong to the agent or one of its subagents."
+                "Thread resources must belong to the agent or one of its "
+                f"subagents. Not attached: {', '.join(unknown)}."
             )
         return (
             [str(resource_id) for resource_id in mcp_ids],

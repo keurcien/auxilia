@@ -5,13 +5,73 @@ import { Bot, LoaderCircle } from "lucide-react";
 import type { Agent } from "@/types/agents";
 import { canConfigureAgent } from "@/types/agents";
 import * as agentsApi from "@/lib/api/resources/agents";
+import type { UnderlineTab } from "@/components/ui/underline-tabs";
 import AgentToolList from "@/app/(protected)/agents/[id]/components/agent-tool-list";
 import AgentSkillList from "@/app/(protected)/agents/[id]/components/agent-skill-list";
 import AgentSubagentList from "@/app/(protected)/agents/[id]/components/agent-subagent-list";
 import { fromAgent } from "@/app/(protected)/agents/lib/agent-form";
 
-interface TriggerResourcesProps {
+export type TriggerResourceKind = "mcp" | "skills" | "subagents" | "sandbox";
+export type TriggerRightTab = "frequency" | TriggerResourceKind;
+
+export interface TriggerAgentState {
 	agentId: string | null;
+	agent: Agent | null;
+	isLoading: boolean;
+	failed: boolean;
+}
+
+/** Loads the trigger's agent once for every resource tab. */
+export function useTriggerAgent(agentId: string | null): TriggerAgentState {
+	const [result, setResult] = useState<{
+		agentId: string;
+		agent: Agent | null;
+		failed: boolean;
+	} | null>(null);
+
+	useEffect(() => {
+		if (!agentId) return;
+		let active = true;
+		void agentsApi
+			.getAgent(agentId)
+			.then((loadedAgent) => {
+				if (!active) return;
+				setResult({ agentId, agent: loadedAgent, failed: false });
+			})
+			.catch(() => {
+				if (!active) return;
+				setResult({ agentId, agent: null, failed: true });
+			});
+		return () => {
+			active = false;
+		};
+	}, [agentId]);
+
+	const current = result?.agentId === agentId ? result : null;
+	return {
+		agentId,
+		agent: current?.agent ?? null,
+		isLoading: Boolean(agentId && !current),
+		failed: current?.failed ?? false,
+	};
+}
+
+/** One tab per resource type, counted like the agent page's capability tabs. */
+export function triggerResourceTabs(
+	agent: Agent | null,
+): UnderlineTab<TriggerResourceKind>[] {
+	const form = agent ? fromAgent(agent) : null;
+	return [
+		{ key: "mcp", label: "MCP servers", count: form?.mcpServers.length },
+		{ key: "skills", label: "Skills", count: form?.skillIds.length },
+		{ key: "subagents", label: "Subagents", count: form?.subagentIds.length },
+		{ key: "sandbox", label: "Sandbox", count: form?.sandboxes.length },
+	];
+}
+
+interface TriggerResourcesProps {
+	kind: TriggerResourceKind;
+	agentState: TriggerAgentState;
 	disabledMcpServerIds: string[] | null;
 	disabledSkillIds: string[] | null;
 	disabledSandboxIds: string[] | null;
@@ -36,7 +96,8 @@ function isEnabled(
 }
 
 export default function TriggerResources({
-	agentId,
+	kind,
+	agentState,
 	disabledMcpServerIds,
 	disabledSkillIds,
 	disabledSandboxIds,
@@ -49,39 +110,7 @@ export default function TriggerResources({
 	onDisabledSubagentIdsChange,
 	onDisabledMcpToolsChange,
 }: TriggerResourcesProps) {
-	const [result, setResult] = useState<{
-		agentId: string;
-		agent: Agent | null;
-		failed: boolean;
-	} | null>(null);
-
-	useEffect(() => {
-		if (!agentId) return;
-		let active = true;
-		void agentsApi
-			.getAgent(agentId)
-			.then((loadedAgent) => {
-				if (!active) return;
-				setResult({
-					agentId,
-					agent: loadedAgent,
-					failed: false,
-				});
-			})
-			.catch(() => {
-				if (!active) return;
-				setResult({
-					agentId,
-					agent: null,
-					failed: true,
-				});
-			});
-		return () => {
-			active = false;
-		};
-	}, [agentId]);
-
-	const agent = result?.agentId === agentId ? result.agent : null;
+	const { agentId, agent, isLoading, failed } = agentState;
 	const agentForm = useMemo(() => (agent ? fromAgent(agent) : null), [agent]);
 	const mcpServers = useMemo(
 		() =>
@@ -122,7 +151,6 @@ export default function TriggerResources({
 			]),
 		);
 	}, [agentForm, disabledMcpTools]);
-	const isLoading = Boolean(agentId && result?.agentId !== agentId);
 
 	if (!agentId) {
 		return (
@@ -149,7 +177,7 @@ export default function TriggerResources({
 		);
 	}
 
-	if (result?.agentId === agentId && result.failed) {
+	if (failed) {
 		return (
 			<div className="rounded-[10px] bg-destructive/10 px-4 py-3 text-[12.5px] font-medium text-destructive">
 				Could not load this agent&apos;s resources.
@@ -158,13 +186,15 @@ export default function TriggerResources({
 	}
 	if (!agent) return null;
 
-	return (
-		<div key={agent.id} className="flex min-w-0 flex-col">
+	if (kind === "mcp" || kind === "sandbox") {
+		return (
 			<AgentToolList
+				key={`${agent.id}:${kind}`}
 				agentId={agent.id}
 				readOnly
 				canToggleDefault={!readOnly}
 				mode="trigger"
+				resourceKind={kind}
 				triggerToolsReadOnly={readOnly}
 				canEdit={canConfigureAgent(agent.currentUserPermission)}
 				mcpServers={mcpServers}
@@ -197,22 +227,34 @@ export default function TriggerResources({
 					});
 				}}
 			/>
-			<AgentSkillList
-				readOnly
-				canToggleDefault={!readOnly}
-				mode="trigger"
-				skillIds={agentForm?.skillIds ?? []}
-				disabledByDefaultIds={disabledSkills}
-				fallbackSkills={agent.skills ?? []}
-				runsCode={sandboxes.length > 0}
-				onDefaultEnabledChange={(skillId, enabled) => {
-					onDisabledSkillIdsChange?.(
-						enabled
-							? disabledSkills.filter((id) => id !== skillId)
-							: [...new Set([...disabledSkills, skillId])],
-					);
-				}}
-			/>
+		);
+	}
+
+	if (kind === "skills") {
+		return (
+			<div key={agent.id} className="[&>div]:mt-0">
+				<AgentSkillList
+					readOnly
+					canToggleDefault={!readOnly}
+					mode="trigger"
+					skillIds={agentForm?.skillIds ?? []}
+					disabledByDefaultIds={disabledSkills}
+					fallbackSkills={agent.skills ?? []}
+					runsCode={sandboxes.length > 0}
+					onDefaultEnabledChange={(skillId, enabled) => {
+						onDisabledSkillIdsChange?.(
+							enabled
+								? disabledSkills.filter((id) => id !== skillId)
+								: [...new Set([...disabledSkills, skillId])],
+						);
+					}}
+				/>
+			</div>
+		);
+	}
+
+	return (
+		<div key={agent.id} className="[&>div]:mt-0">
 			<AgentSubagentList
 				readOnly
 				canToggleDefault={!readOnly}
