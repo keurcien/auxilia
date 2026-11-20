@@ -4,7 +4,7 @@ version = "0.9.28"
 description = "auxilia backend — FastAPI service for hosting MCP-powered AI assistants"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.15.0",
     "anyio>=4.5.0",
@@ -63,7 +63,7 @@ dev = [
 
 [tool.ruff]
 indent-width = 4
-target-version = "py311"
+target-version = "py314"
 exclude = ["alembic"]
 
 [tool.ruff.lint]
@@ -131,7 +131,7 @@ lines-after-imports = 2
 # `app/repository.py` / `app/service.py` were meant to catch and currently can't
 # (nothing type-checked this codebase before), not annotating every function.
 # Tighten per-module as modules get cleaned up — see backend-cleanup-todo.md P0-3.
-python_version = "3.11"
+python_version = "3.14"
 files = ["app"]
 exclude = "^alembic/"
 explicit_package_bases = true

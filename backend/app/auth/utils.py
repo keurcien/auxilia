@@ -80,7 +80,7 @@ def decode_access_token(token: str) -> UUID | None:
         if user_id_str is None:
             return None
         return UUID(user_id_str)
-    except (JWTError, ValueError):
+    except JWTError, ValueError:
         # ValueError: a signed token whose `sub` isn't a UUID. Treat it as
         # "not authenticated" (401) rather than letting it escape as a 500.
         return None
@@ -109,7 +109,7 @@ def renew_access_token(token: str) -> str | None:
             + timedelta(days=auth_settings.SESSION_MAX_DAYS)
             - now
         )
-    except (JWTError, KeyError, TypeError, ValueError):
+    except JWTError, KeyError, TypeError, ValueError:
         return None
     lifetime = timedelta(minutes=auth_settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     if remaining >= lifetime / 2 or session_left <= remaining:

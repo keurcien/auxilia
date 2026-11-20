@@ -39,7 +39,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Unpack
 
 import httpx2
 from fastmcp.client import Client
@@ -50,7 +50,6 @@ from mcp.client import advertise
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.types import CallToolResult, Implementation
-from typing_extensions import Unpack
 
 from app.mcp.client.exceptions import as_oauth_required
 from app.version import __version__

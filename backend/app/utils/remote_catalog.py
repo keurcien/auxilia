@@ -26,7 +26,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
-from typing import Generic, TypeVar
 
 import httpx
 from pydantic import BaseModel
@@ -38,8 +37,6 @@ from app.redis_client import get_redis
 
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T", bound=BaseModel)
 
 TTL_SECONDS = 7 * 24 * 60 * 60
 MEMO_TTL_SECONDS = 60
@@ -57,7 +54,7 @@ class SyncResult(BaseModel):
     fetched_at: datetime
 
 
-class RemoteCatalog(Generic[T]):
+class RemoteCatalog[T: BaseModel]:
     """One CDN-backed catalog. Callers supply the parsing and identity rules;
     this owns the caching, fallback and sync mechanics.
 

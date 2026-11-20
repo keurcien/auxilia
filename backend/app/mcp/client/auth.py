@@ -523,7 +523,7 @@ class WebOAuthClientProvider(OAuthClientProvider):
         for attempt in range(2):
             try:
                 await self._drive_auth_flow()
-            except (OAuthRegistrationError, OAuthFlowError):
+            except OAuthRegistrationError, OAuthFlowError:
                 if attempt == 1 or not await self._recover_registration_context():
                     raise
                 continue

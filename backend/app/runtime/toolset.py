@@ -220,7 +220,7 @@ class MCPResolutionScope:
         bindings: Sequence[AgentMCPServerBase],
         db: AsyncSession,
         user_id: str,
-    ) -> "MCPResolutionScope":
+    ) -> MCPResolutionScope:
         """Preload every server the graph's `bindings` name, in one query."""
         scope = cls(db, user_id)
         await scope.load([b.mcp_server_id for b in bindings])

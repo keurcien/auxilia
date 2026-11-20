@@ -20,7 +20,7 @@ class CheckpointWriteRepository:
 
     async def iter_message_writes(
         self, thread_id: str, *, newest_first: bool = True
-    ) -> AsyncGenerator[tuple[str, bytes], None]:
+    ) -> AsyncGenerator[tuple[str, bytes]]:
         """`(type, blob)` of every `messages`-channel write of the thread, in
         every namespace — streamed, so a caller that stops early never holds
         more than one write. Newest checkpoint first when `newest_first`;

@@ -30,7 +30,7 @@ class UserDB(UserBase, BaseDBModel, table=True):
         nullable=True,
     )
 
-    oauth_accounts: list["OAuthAccountDB"] = Relationship(back_populates="user")
+    oauth_accounts: list[OAuthAccountDB] = Relationship(back_populates="user")
 
 
 class OAuthAccountBase(SQLModel):

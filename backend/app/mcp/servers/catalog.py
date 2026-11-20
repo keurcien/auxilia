@@ -45,7 +45,7 @@ class OfficialServer(BaseModel):
     supports_dcr: bool | None = None
 
     @model_validator(mode="after")
-    def validate_entry(self) -> "OfficialServer":
+    def validate_entry(self) -> OfficialServer:
         if not self.name.strip():
             raise ValueError("server name must not be empty")
         bad_url = ValueError(f"url {self.url!r} must be an absolute http(s) URL")
@@ -79,7 +79,7 @@ class CatalogDocument(BaseModel):
     servers: list[OfficialServer]
 
     @model_validator(mode="after")
-    def servers_non_empty_and_unique(self) -> "CatalogDocument":
+    def servers_non_empty_and_unique(self) -> CatalogDocument:
         if not self.servers:
             raise ValueError("catalog has no servers")
         # url is the identity key (is_installed matches on it); name is the

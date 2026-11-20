@@ -421,7 +421,7 @@ class ResolvedAgent:
         *,
         is_parent: bool = False,
         scope: MCPResolutionScope | None = None,
-    ) -> "ResolvedAgent":
+    ) -> ResolvedAgent:
         """Bind one agent's spec to a prepared toolset.
 
         Takes an already-read `AgentSpec` rather than an id: the whole graph
@@ -549,7 +549,7 @@ class Agent:
         }
 
     @classmethod
-    async def build(cls, thread: ThreadDB, db: AsyncSession) -> "Agent":
+    async def build(cls, thread: ThreadDB, db: AsyncSession) -> Agent:
         """Resolve everything a run needs from the database.
 
         A resume (a HITL approval) resolves exactly as a first run does —
@@ -1006,7 +1006,7 @@ class Agent:
                         raise StructuredOutputError(
                             "Run ended without the required structured response"
                         )
-            except (asyncio.CancelledError, GeneratorExit):
+            except asyncio.CancelledError, GeneratorExit:
                 # A cancel lands here directly, or — when it hit the consumer
                 # between two events — as the consumer's `aclose()`.
                 # Shielded: the save must outlive the cancel it is reacting to.
