@@ -20,15 +20,14 @@ class UUIDMixin(SQLModel):
 class TimestampMixin(SQLModel):
     """Server-side created_at / updated_at timestamps."""
 
-    # sqlmodel's Field stub types `sa_type` as `type[Any]`, but SQLModel accepts a
-    # type *instance* (needed for DateTime(timezone=True)) — a stub inaccuracy, not
-    # a real mismatch.
-    created_at: datetime | None = Field(  # type: ignore[call-overload]
+    # Both are server-generated and NOT NULL: `None` is only the pre-flush value,
+    # so the annotation is the type a caller reads after `flush()`.
+    created_at: datetime = Field(
         default=None,
         sa_type=DateTime(timezone=True),
         sa_column_kwargs={"server_default": func.now(), "nullable": False},
     )
-    updated_at: datetime = Field(  # type: ignore[call-overload]
+    updated_at: datetime = Field(
         default=None,
         sa_type=DateTime(timezone=True),
         sa_column_kwargs={
