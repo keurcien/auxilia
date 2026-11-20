@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.11.119](https://github.com/jr-k/auxilia/compare/backend-v0.11.118...backend-v0.11.119) (2026-11-20)
+
+
+### Features
+
+* **chat:** model and cost breakdown in the mobile actions sheet ([2a229c2](https://github.com/jr-k/auxilia/commit/2a229c29314926655d0fdf07bfd8185a3cabf530))
+* **chat:** project breadcrumb in the conversation header, linking to the project; move to project from the header and the mobile sheet ([2a229c2](https://github.com/jr-k/auxilia/commit/2a229c29314926655d0fdf07bfd8185a3cabf530))
+* **threads:** bulk options menu (read, complete, move to project) in the sidebar, profile list and project view ([2a229c2](https://github.com/jr-k/auxilia/commit/2a229c29314926655d0fdf07bfd8185a3cabf530))
+* **triggers:** options, project and per-type resource tabs in the trigger list and pages ([2a229c2](https://github.com/jr-k/auxilia/commit/2a229c29314926655d0fdf07bfd8185a3cabf530))
+* **web:** bulk conversation menu, project context in chat, trigger list options ([#325](https://github.com/jr-k/auxilia/issues/325)) ([2a229c2](https://github.com/jr-k/auxilia/commit/2a229c29314926655d0fdf07bfd8185a3cabf530))
+
+
+### Bug Fixes
+
+* **triggers:** saving a trigger no longer fails on resources detached from its agent since ([2a229c2](https://github.com/jr-k/auxilia/commit/2a229c29314926655d0fdf07bfd8185a3cabf530))
+* **triggers:** the list menu Edit action opens the editor ([2a229c2](https://github.com/jr-k/auxilia/commit/2a229c29314926655d0fdf07bfd8185a3cabf530))
+* **triggers:** the list row menu is no longer clipped ([2a229c2](https://github.com/jr-k/auxilia/commit/2a229c29314926655d0fdf07bfd8185a3cabf530))
+* **web:** emoji pickers render above dialogs and scroll containers ([2a229c2](https://github.com/jr-k/auxilia/commit/2a229c29314926655d0fdf07bfd8185a3cabf530))
+
 ## [0.11.118](https://github.com/jr-k/auxilia/compare/backend-v0.11.117...backend-v0.11.118) (2026-11-19)
 
 
