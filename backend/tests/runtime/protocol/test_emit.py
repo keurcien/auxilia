@@ -38,11 +38,8 @@ from app.exceptions import StaleApprovalError
 from app.runtime.agent import build_agent_middleware, build_runnable
 from app.runtime.checkpoints import get_checkpoint_state
 from app.runtime.hitl import (
-    address_input_requested,
     build_resume_command,
     load_interrupt_scope,
-    next_elicitation_rounds,
-    scope_wire_id,
 )
 from app.runtime.protocol.emit import ProtocolEmitter
 from app.runtime.protocol.messages import serialize_message
@@ -444,7 +441,11 @@ async def test_tools_channel_and_tool_role_messages(scenario):
         "description": "research X",
         "subagent_type": "helper",
     }
-    assert _data(task_events[1])["output"] == "sub says hello"
+    # deepagents attaches the namespace the subagent checkpointed under as the
+    # ToolMessage's artifact, and an artifact rides inside `output`.
+    output = _data(task_events[1])["output"]
+    assert output["content"] == "sub says hello"
+    assert output["artifact"]["checkpoint_ns"].startswith("tools:")
     # …and a closed tool-role message so the client's message projection
     # shows the result.
     tool_starts = [
@@ -731,10 +732,11 @@ def ask_twice(restaurant: str) -> str:
 
 
 async def test_repeated_elicitation_rounds_get_distinct_wire_ids():
-    """langgraph gives every round the task's one interrupt id, and the
-    client drops an id it already answered. Each live `input.requested`,
-    stamped as `Agent.stream` does, carries its round — even for an identical
-    question — and the same id `/state` reports, which resume accepts."""
+    """The client drops an id it already answered, so a tool call that asks
+    again must be asked under a new one. langgraph gives each round its own
+    interrupt id — even for an identical question — and the live
+    `input.requested` carries the same id `/state` reports, which resume
+    accepts."""
     model = ScriptedModel(
         script=[
             AIMessage(
@@ -758,20 +760,18 @@ async def test_repeated_elicitation_rounds_get_distinct_wire_ids():
     thread_id = "elicit-2"
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
 
-    async def round_of(agent_input, command=None) -> str:
-        # As `Agent.stream`: rounds counted before the run, stamped mid-stream.
-        rounds = await next_elicitation_rounds(checkpointer, thread_id, command)
+    async def round_of(agent_input) -> str:
         events = await _collect(agent, agent_input, config)
         (requested,) = _of(events, "input.requested")
-        live = _data(address_input_requested(requested, rounds))["interrupt_id"]
+        live = _data(requested)["interrupt_id"]
         scope = await load_interrupt_scope(checkpointer, thread_id)
-        assert live == scope_wire_id(scope)  # what /state reports
+        assert live == scope.interrupt.id  # what /state reports
         return live
 
     round_1 = await round_of({"messages": [HumanMessage(content="hi", id="h-1")]})
     root = await get_checkpoint_state(checkpointer, thread_id)
     resume = build_resume_command(root, {"interrupt_id": round_1, "responses": {}})
-    round_2 = await round_of(Command(**resume), resume)
+    round_2 = await round_of(Command(**resume))
     assert round_1 != round_2
 
     root = await get_checkpoint_state(checkpointer, thread_id)

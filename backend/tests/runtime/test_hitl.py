@@ -16,9 +16,7 @@ from app.runtime.hitl import (
     pending_approval_requests,
     pending_interrupt,
     pending_interrupts,
-    wire_id,
 )
-from app.runtime.protocol.events import wire_interrupt_id
 from tests.runtime.fake_checkpoints import checkpoint_state
 
 
@@ -190,8 +188,9 @@ _ELICITATION = {
 }
 
 
-# Round 1: no answer recorded on the task yet.
-_ELICITATION_WIRE_ID = wire_interrupt_id(INTERRUPT_ID, _ELICITATION, 1)
+# The client addresses an elicitation by langgraph's interrupt id, as it does
+# an approval.
+_ELICITATION_WIRE_ID = INTERRUPT_ID
 
 
 def test_elicitation_resume_passes_the_responses_through():
@@ -220,36 +219,48 @@ def test_elicitation_responses_must_answer_every_request(responses):
         build_resume_command(_checkpoint(_ELICITATION, []), resume)
 
 
-def test_elicitation_rounds_are_counted_off_the_recorded_answers():
-    """Every round of one tool call shares langgraph's interrupt id (and may
-    repeat the very same question), and the client ignores an id it already
-    answered: the round — answers recorded on the task's `__resume__` write,
-    plus one — tells them apart, and an earlier round's answer is stale."""
+def test_an_earlier_elicitation_round_is_stale_once_the_task_asks_again():
+    """langgraph gives each round of one tool call its own interrupt id (the
+    question itself may be identical), so the id alone tells rounds apart and
+    an earlier round's answer does not land on the next one."""
+    round_2 = "b" * 32
     # Round 2 of the identical question: one answer already recorded.
     checkpoint = checkpoint_state(
         [],
-        interrupts=[("task-1", _ELICITATION, INTERRUPT_ID)],
+        interrupts=[("task-1", _ELICITATION, round_2)],
         pending_writes=[("task-1", "__resume__", [{"responses": {}}])],
     )
     (pending,) = pending_interrupts(checkpoint)
-    round_2_id = wire_id(checkpoint, pending)
-    assert round_2_id == wire_interrupt_id(INTERRUPT_ID, _ELICITATION, 2)
-    assert round_2_id not in (INTERRUPT_ID, _ELICITATION_WIRE_ID)
-    # Approvals keep the checkpoint's id, whatever the round.
-    assert wire_interrupt_id(INTERRUPT_ID, {"action_requests": []}, 2) == INTERRUPT_ID
+    assert pending.id == round_2 != INTERRUPT_ID
 
     answer = {"action": "decline"}
-    for stale_id in (_ELICITATION_WIRE_ID, INTERRUPT_ID):
+    # Round 1's id — bare, or in the `<id>-<round>` form older clients hold.
+    for stale_id in (INTERRUPT_ID, f"{INTERRUPT_ID}-1"):
         with pytest.raises(StaleApprovalError):
             build_resume_command(
                 checkpoint,
                 {"interrupt_id": stale_id, "responses": {"details": answer}},
             )
     out = build_resume_command(
-        checkpoint, {"interrupt_id": round_2_id, "responses": {"details": answer}}
+        checkpoint, {"interrupt_id": round_2, "responses": {"details": answer}}
     )
+    assert out == {"resume": {round_2: {"responses": {"details": answer}}}}
+
+
+def test_a_pre_upgrade_elicitation_id_still_answers_its_interrupt():
+    """Before langgraph 1.2.24 elicitations went out as `<id>-<round>`. A
+    client that was connected across the upgrade answers with that form, and
+    it still names the interrupt it was issued for."""
+    answer = {"action": "accept", "content": {}}
+    checkpoint = _checkpoint(_ELICITATION, [])
+    legacy = f"{INTERRUPT_ID}-1"
+
+    out = build_resume_command(
+        checkpoint, {"interrupt_id": legacy, "responses": {"details": answer}}
+    )
+
     assert out == {"resume": {INTERRUPT_ID: {"responses": {"details": answer}}}}
-    assert pending_interrupt(checkpoint, round_2_id).id == INTERRUPT_ID
+    assert pending_interrupt(checkpoint, legacy).id == INTERRUPT_ID
 
 
 def test_stale_when_nothing_is_pending():

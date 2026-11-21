@@ -52,6 +52,12 @@ EXPECTED_DEVIATIONS: list[str] = [
     "run (a skill saved between two turns must reach the next one), reads it "
     "from the run's in-memory `SkillsBackend` rather than the sandbox, and "
     "carries this app's prompt template.",
+    "No ModelRefusalMiddleware, on the main stack or the general-purpose "
+    "subagent's: deepagents 0.7.41 ends both with it, which turns a model "
+    "refusal into a failed run. Plain agents do not have it, so taking it here "
+    "would fork refusal handling on the sandbox.",
+    "No _ParentNotifierMiddleware: it reports back to an agent that launched "
+    "this one with `start_async_task`, and the runtime has no async subagents.",
 ]
 """Differences we accept between the two assemblies. Each is asserted in
 `comparable()`; add an entry there when you add one here."""
@@ -170,6 +176,8 @@ def _describe_middleware(m) -> dict:
         # profile-suffixed prompt are all invisible from the outside, and
         # dropping any of them would diverge from `create_deep_agent` silently.
         described["subagents"] = [_describe_subagent(s) for s in m._subagents]
+        # What the `task` tool neither forwards to a subagent nor merges back.
+        described["private_state_keys"] = sorted(m.private_state_keys)
     return described
 
 
@@ -208,7 +216,7 @@ def comparable(ours: dict, deep: dict) -> tuple[dict, dict]:
 
     Everything left has to match exactly.
     """
-    assert len(EXPECTED_DEVIATIONS) == 2
+    assert len(EXPECTED_DEVIATIONS) == 4
     # Shallow copies: the projections hold the model instance, which does not
     # deepcopy (its HTTP client carries a lock), and nothing below mutates deeper.
     ours = {**ours, "middleware": list(ours["middleware"])}
@@ -226,7 +234,41 @@ def comparable(ours: dict, deep: dict) -> tuple[dict, dict]:
     ours["middleware"] = [_fold_skills(m) for m in ours["middleware"]]
     assert "FreshSkillsMiddleware" not in _classes(deep["middleware"])
 
+    # 3. deepagents ends the main stack and the general-purpose subagent's with
+    #    ModelRefusalMiddleware; neither of ours has it.
+    assert deep["middleware"][-1]["class"] == "ModelRefusalMiddleware"
+    assert "ModelRefusalMiddleware" not in _classes(ours["middleware"])
+    deep["middleware"] = _without(deep["middleware"], "ModelRefusalMiddleware")
+
+    # 4. _ParentNotifierMiddleware follows the task middleware in deepagents'
+    #    main stack only.
+    assert "_ParentNotifierMiddleware" not in _classes(ours["middleware"])
+    deep["middleware"] = _without(deep["middleware"], "_ParentNotifierMiddleware")
+    assert not {"ModelRefusalMiddleware", "_ParentNotifierMiddleware"} & _classes(
+        deep["middleware"]
+    )
+
     return ours, deep
+
+
+def _without(middleware: list[dict], cls: str) -> list[dict]:
+    """A described stack minus every `cls`, in subagent stacks too."""
+    kept = []
+    for m in middleware:
+        if m["class"] == cls:
+            continue
+        if "subagents" in m:
+            m = {
+                **m,
+                "subagents": [
+                    {**sub, "middleware": _without(sub["middleware"], cls)}
+                    if "middleware" in sub
+                    else sub
+                    for sub in m["subagents"]
+                ],
+            }
+        kept.append(m)
+    return kept
 
 
 def _classes(middleware: list[dict]) -> set[str]:
@@ -317,18 +359,25 @@ def test_sandbox_assembly_matches_create_deep_agent(model_name):
 
 @pytest.mark.parametrize("model_name", list(MODELS))
 def test_sandbox_assembly_with_skills_matches_create_deep_agent(model_name):
-    """With skills, deepagents puts `SkillsMiddleware` first on the main stack
-    and last on the general-purpose subagent's; ours lands in the same slots."""
+    """With skills, deepagents puts `SkillsMiddleware` innermost before prompt
+    caching — after the caller's stack on the main agent, after the patcher on
+    the general-purpose subagent; ours lands in the same slots."""
     model = MODELS[model_name]()
 
     deep, ours = _both(model, skills=True)
 
     ours, deep = comparable(ours, deep)
     assert ours == deep
-    assert ours["middleware"][0]["class"] == "SkillsMiddleware"
+    names = [m["name"] for m in ours["middleware"]]
+    assert names.index("ToolErrorMiddleware") + 1 == names.index("SkillsMiddleware")
+    assert names.index("SkillsMiddleware") + 1 == names.index(
+        "AnthropicPromptCachingMiddleware"
+    )
     gp = next(m for m in ours["middleware"] if m["name"] == "SubAgentMiddleware")
-    gp_classes = [m["class"] for m in gp["subagents"][0]["middleware"]]
-    assert "SkillsMiddleware" in gp_classes
+    gp_names = [m["name"] for m in gp["subagents"][0]["middleware"]]
+    assert gp_names.index("PatchToolCallsMiddleware") + 1 == gp_names.index(
+        "SkillsMiddleware"
+    )
 
 
 @pytest.mark.parametrize("model_name", list(MODELS))
@@ -360,6 +409,7 @@ def test_caller_subagents_are_appended_after_the_general_purpose_one():
 
     deep, ours = _both(model, subagents=subagents)
 
+    ours, deep = comparable(ours, deep)
     task = next(m for m in ours["middleware"] if m["name"] == "SubAgentMiddleware")
     listing = task["tool_descriptions"]["task"]
     assert listing.index("general-purpose") < listing.index("helper")
@@ -369,9 +419,11 @@ def test_caller_subagents_are_appended_after_the_general_purpose_one():
 
 
 def test_caller_middleware_keeps_its_place_in_the_stack():
-    """The caller's stack sits between the harness and prompt caching — which
-    is where deepagents put it, and the reason a parent middleware's hooks fire
-    in the same order on both paths."""
+    """The caller's stack sits between the harness and its tail (prompt caching,
+    then the unsupported-content guard) — which is where deepagents put it, and
+    the reason a parent middleware's hooks fire in the same order on both
+    paths. Compared by registered name: deepagents' Anthropic caching is a lazy
+    stand-in class under the real middleware's name."""
     model = MODELS["openai"]()
     schema = {"title": "answer", "type": "object", "properties": {}}
 
@@ -380,15 +432,18 @@ def test_caller_middleware_keeps_its_place_in_the_stack():
     )
 
     ours, deep = comparable(ours, deep)
-    names = [m["class"] for m in ours["middleware"]]
-    assert names == [m["class"] for m in deep["middleware"]]
+    names = [m["name"] for m in ours["middleware"]]
+    assert names == [m["name"] for m in deep["middleware"]]
     assert names.index("PatchToolCallsMiddleware") < names.index(
         "DeferredStructuredOutputMiddleware"
     )
     assert names.index("DeferredStructuredOutputMiddleware") < names.index(
         "ToolErrorMiddleware"
     )
-    assert names[-1] == "AnthropicPromptCachingMiddleware"
+    assert names[-2:] == [
+        "AnthropicPromptCachingMiddleware",
+        "UnsupportedContentMiddleware",
+    ]
 
 
 def test_a_system_message_prompt_is_extended_the_same_way():
@@ -445,7 +500,7 @@ def test_no_sandbox_means_no_harness():
     described = describe(seen)
     assert described["system_prompt"] == "You are a test agent"
     assert described["tools"] == ["add"]
-    assert [m["class"] for m in described["middleware"]] == [
+    assert [m["name"] for m in described["middleware"]] == [
         "ToolErrorMiddleware",
         "AnthropicPromptCachingMiddleware",
     ]
@@ -481,6 +536,7 @@ def test_general_purpose_subagent_carries_no_todo_middleware():
     the tool and its prompt fragment."""
     deep, ours = _both(MODELS["openai"]())
 
+    ours, deep = comparable(ours, deep)
     task = next(m for m in ours["middleware"] if m["name"] == "SubAgentMiddleware")
     (general_purpose,) = task["subagents"]
     assert general_purpose["name"] == "general-purpose"
@@ -514,7 +570,7 @@ def test_plain_path_wires_subagents_after_the_caller_stack():
             ],
         )
 
-    names = [type(m).__name__ for m in seen["middleware"]]
+    names = [m.name for m in seen["middleware"]]
     assert names == [
         "CurrentDateMiddleware",
         "SubAgentMiddleware",

@@ -45,11 +45,12 @@ from app.runtime.checkpoints import (
 )
 from app.runtime.harness import (
     HARNESS_CONFIG,
+    bind_private_state_keys,
     harness_middleware,
     harness_system_prompt,
+    harness_tools,
     harness_trailing_middleware,
 )
-from app.runtime.hitl import address_input_requested, next_elicitation_rounds
 from app.runtime.middleware.current_date import CurrentDateMiddleware
 from app.runtime.middleware.structured_output import (
     FORMAT_TOOL,
@@ -260,6 +261,7 @@ def build_runnable(
     if sandbox_backend is not None:
         if artifact_context is not None:
             tools.append(present_files_tool(sandbox_backend, *artifact_context))
+        tools = harness_tools(model, tools)
         harness += harness_middleware(
             model=model,
             tools=tools,
@@ -291,11 +293,12 @@ def build_runnable(
         middleware.append(DeferredStructuredOutputMiddleware(format_mode))
     middleware.append(ToolErrorMiddleware())
     if sandbox_backend is not None:
-        middleware += harness_trailing_middleware(model)
+        middleware += harness_trailing_middleware(model, skills)
     else:
         # Same trailing caching as the harness, minus its profile guard
         # (which only concerns the sandbox stack).
         append_prompt_caching_middleware(middleware)
+    bind_private_state_keys(middleware)
 
     agent = create_agent(
         model=model,
@@ -977,16 +980,9 @@ class Agent:
                 transformers=[UpdatesTransformer],
             )
             emitter = ProtocolEmitter()
-            # An elicitation that asks again is in its next round: counted now,
-            # off what the previous run wrote, not mid-stream.
-            rounds = await next_elicitation_rounds(
-                agent.checkpointer, self.thread.id, command
-            )
             try:
                 async with run:
                     async for event in emitter.stream(run):
-                        if event["method"] == "input.requested":
-                            event = address_input_requested(event, rounds)
                         yield event
                 if output_schema is not None:
                     # Regeneration pins the starting checkpoint; validate the completed turn.
