@@ -31,7 +31,13 @@ dependencies = [
     "aiohttp>=3.13.3",
     "langfuse>=4.15.6",
     "h2>=4.3.0",
-    "deepagents>=0.7.13",
+    # app/runtime/harness.py reproduces this version's middleware bundle and
+    # imports modules it introduced; tests/runtime/test_harness_parity.py
+    # fails on a release that changes the bundle.
+    "deepagents>=0.7.41",
+    # >=1.2.24: each round of a re-asked interrupt gets its own id, which the
+    # HITL resume path relies on (app/runtime/hitl.py).
+    "langgraph>=1.2.24",
     "opensandbox>=0.1.6",
     "jsonschema>=4.26.0",
     "croniter>=6.2.3",
