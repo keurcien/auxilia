@@ -206,22 +206,15 @@ def is_elicitation(value: Any) -> bool:
     return isinstance(value, dict) and value.get("type") == ELICITATION_INTERRUPT_TYPE
 
 
-def wire_interrupt_id(interrupt_id: str, value: Any, round_: int) -> str:
-    """The id the client knows an interrupt by.
-
-    langgraph derives an interrupt's id from its task's namespace, so every
-    round of an MCP elicitation — the same tool call interrupting again —
-    reuses one id, and the client ignores an id once it has answered it
-    (`resolvedInterrupts` in the SDK's stream controller). Each round gets its
-    own id instead: the real one plus the round's number (`hitl.wire_id`
-    counts it off the checkpoint), so even a server asking the identical
-    question again is asked anew. Approvals keep theirs.
-    """
-    return f"{interrupt_id}-{round_}" if is_elicitation(value) else interrupt_id
-
-
 def base_interrupt_id(wire_id: str) -> str:
-    """The checkpoint's interrupt id inside a `wire_interrupt_id`."""
+    """The checkpoint's interrupt id behind the id a client sent.
+
+    Clients get langgraph's interrupt id as is. Before langgraph 1.2.24 every
+    round of an MCP elicitation shared one id, so elicitations went out as
+    `<id>-<round>`; a client that was connected across the upgrade can still
+    answer with that form, and this strips the suffix. An interrupt id is a
+    bare hex digest, so it is returned unchanged.
+    """
     base, sep, round_ = wire_id.rpartition("-")
     return base if sep and round_.isdigit() else wire_id
 
