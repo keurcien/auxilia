@@ -219,6 +219,12 @@ def base_interrupt_id(wire_id: str) -> str:
     return base if sep and round_.isdigit() else wire_id
 
 
+def legacy_round(wire_id: str) -> int | None:
+    """The round a pre-1.2.24 `<id>-<round>` id names, None for a bare id."""
+    _, sep, round_ = wire_id.rpartition("-")
+    return int(round_) if sep and round_.isdigit() else None
+
+
 def input_requested(namespace: Namespace, *, interrupt_id: str, payload: Any) -> dict:
     data = {"interrupt_id": interrupt_id, "payload": payload}
     return {"method": "input.requested", "params": _params(namespace, data)}

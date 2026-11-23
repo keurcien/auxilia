@@ -35,7 +35,11 @@ from langchain_core.messages import ToolMessage
 
 from app.exceptions import DomainValidationError, StaleApprovalError
 from app.runtime.checkpoints import CheckpointState, get_checkpoint_state
-from app.runtime.protocol.events import base_interrupt_id, is_elicitation
+from app.runtime.protocol.events import (
+    base_interrupt_id,
+    is_elicitation,
+    legacy_round,
+)
 
 
 class PendingInterrupt(NamedTuple):
@@ -137,6 +141,26 @@ def pending_interrupts(checkpoint: Any) -> list[PendingInterrupt]:
                 )
             )
     return found
+
+
+def _legacy_round(checkpoint: Any, interrupt: PendingInterrupt) -> int:
+    """Which round of its task's questions `interrupt` is, counted off
+    `checkpoint`: langgraph appends each answer to the task's `__resume__`
+    write, so the pending question is the one after the answers on record.
+
+    Only needed to check a pre-1.2.24 `<id>-<round>` answer: every round of
+    such an interrupt shares one id, so the id cannot tell rounds apart.
+    """
+    saved = checkpoint.saved if isinstance(checkpoint, CheckpointState) else checkpoint
+    answered = max(
+        (
+            len(value) if isinstance(value, (list, tuple)) else 1
+            for task_id, channel, value in getattr(saved, "pending_writes", None) or []
+            if channel == "__resume__" and task_id == interrupt.task_id
+        ),
+        default=0,
+    )
+    return answered + 1
 
 
 def pending_interrupt(
@@ -333,6 +357,15 @@ def build_resume_command(
     named = base_interrupt_id(interrupt_id) if isinstance(interrupt_id, str) else None
     if pending.id is not None and named != pending.id:
         raise StaleApprovalError("This approval request was already handled.")
+    # A pre-1.2.24 `<id>-<round>` answer: the rounds of the interrupt it was
+    # issued for all share that id, so the round is checked too — counted
+    # where the interrupt lives (`scope`, for a paused subagent).
+    asked = legacy_round(interrupt_id) if isinstance(interrupt_id, str) else None
+    if asked is not None:
+        own = pending_interrupt(scope, pending.id) if scope is not None else None
+        current = _legacy_round(scope, own) if own else _legacy_round(root, pending)
+        if asked != current:
+            raise StaleApprovalError("This approval request was already handled.")
 
     payload = (
         _elicitation_payload(pending.value, resume)

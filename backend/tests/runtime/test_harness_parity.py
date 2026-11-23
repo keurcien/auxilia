@@ -237,6 +237,11 @@ def comparable(ours: dict, deep: dict) -> tuple[dict, dict]:
     # 3. deepagents ends the main stack and the general-purpose subagent's with
     #    ModelRefusalMiddleware; neither of ours has it.
     assert deep["middleware"][-1]["class"] == "ModelRefusalMiddleware"
+    task = next(m for m in deep["middleware"] if m["name"] == "SubAgentMiddleware")
+    declarative = [sub for sub in task["subagents"] if not sub["compiled"]]
+    assert declarative
+    for sub in declarative:
+        assert sub["middleware"][-1]["class"] == "ModelRefusalMiddleware"
     assert "ModelRefusalMiddleware" not in _classes(ours["middleware"])
     deep["middleware"] = _without(deep["middleware"], "ModelRefusalMiddleware")
 

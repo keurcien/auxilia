@@ -263,6 +263,31 @@ def test_a_pre_upgrade_elicitation_id_still_answers_its_interrupt():
     assert pending_interrupt(checkpoint, legacy).id == INTERRUPT_ID
 
 
+def test_a_pre_upgrade_answer_to_an_earlier_round_is_stale():
+    """A checkpoint written before langgraph 1.2.24 keeps one id for every
+    round of an elicitation, so a suffixed answer is held to its round: the
+    answer to round 1 must not land on a round 2 that is still pending."""
+    answer = {"action": "accept", "content": {}}
+    # Round 2, old style: same id as round 1, one answer already on record.
+    checkpoint = checkpoint_state(
+        [],
+        interrupts=[("task-1", _ELICITATION, INTERRUPT_ID)],
+        pending_writes=[("task-1", "__resume__", [{"responses": {}}])],
+    )
+
+    with pytest.raises(StaleApprovalError):
+        build_resume_command(
+            checkpoint,
+            {"interrupt_id": f"{INTERRUPT_ID}-1", "responses": {"details": answer}},
+        )
+    # Round 2's own id, suffixed or as `/state` now reports it, still lands.
+    for current in (f"{INTERRUPT_ID}-2", INTERRUPT_ID):
+        out = build_resume_command(
+            checkpoint, {"interrupt_id": current, "responses": {"details": answer}}
+        )
+        assert out == {"resume": {INTERRUPT_ID: {"responses": {"details": answer}}}}
+
+
 def test_stale_when_nothing_is_pending():
     resume = {"interrupt_id": INTERRUPT_ID, "decisions": []}
     with pytest.raises(StaleApprovalError):
