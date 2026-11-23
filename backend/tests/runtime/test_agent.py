@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from deepagents.graph import DeepAgentState
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from langchain.agents.middleware import ModelRetryMiddleware, ToolCallLimitMiddleware
+from langchain.agents.structured_output import ToolStrategy
 
 from app.runtime.agent import (
     Agent,
@@ -68,7 +69,11 @@ def test_build_agent_forwards_output_schema(mock_create_agent):
 
     agent._build_agent(checkpointer=None, output_schema=schema)
 
-    assert mock_create_agent.call_args.kwargs["response_format"] == schema
+    # A ToolStrategy, not the raw schema: a raw schema lets langchain switch to
+    # provider-native json_schema whenever a model profile says it can.
+    response_format = mock_create_agent.call_args.kwargs["response_format"]
+    assert isinstance(response_format, ToolStrategy)
+    assert response_format.schema == schema
     # The schema must be deferred off the tool-calling loop, otherwise the
     # model skips tools and fabricates values to satisfy the constraint.
     middleware = mock_create_agent.call_args.kwargs["middleware"]

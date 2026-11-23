@@ -17,6 +17,7 @@ from langchain.agents.middleware import (
     ModelRetryMiddleware,
     ToolCallLimitMiddleware,
 )
+from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -314,7 +315,14 @@ def build_runnable(
         system_prompt=system_prompt,
         checkpointer=checkpointer,
         middleware=middleware,
-        response_format=output_schema,
+        # Pinned to ToolStrategy: a raw schema lets langchain pick a strategy
+        # from the model's profile, so a dependency bump that marks a model as
+        # supporting native structured output silently switches it to the
+        # provider's json_schema path. The formatting middleware decides the
+        # strategy per provider; this only fixes the default it starts from.
+        response_format=(
+            ToolStrategy(output_schema) if output_schema is not None else None
+        ),
         state_schema=DeepAgentState,
     )
     # deepagents binds this onto every graph it builds; keep it on the sandbox
