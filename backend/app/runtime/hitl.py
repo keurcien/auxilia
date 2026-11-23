@@ -3,8 +3,12 @@
 The LangGraph checkpoint is the source of truth for "this thread is waiting
 on approvals": a graph paused on `HumanInTheLoopMiddleware` leaves an
 `__interrupt__` entry in the checkpoint's `pending_writes` carrying a stable
-interrupt id (a hash of the interrupting task's namespace — recomputed from
-the checkpoint on every read, stored nowhere by us). Everything here is a
+interrupt id (a hash of the interrupting task's namespace and of how many
+answers that task already has — recomputed from the checkpoint on every
+read, stored nowhere by us). That id is the one the client sees, live and on
+`/state`: since langgraph 1.2.24 a task that asks again (an MCP elicitation
+re-asking after an answer it rejects) gets a new id for each round, so an
+answer names exactly one question. Everything here is a
 pure function of a `CheckpointState` (the raw tuple for its pending writes,
 the reconstructed channel values for the tool calls — see
 `app/runtime/checkpoints.py`) plus client-supplied decisions: no session, no
@@ -28,14 +32,13 @@ import re
 from typing import Any, NamedTuple
 
 from langchain_core.messages import ToolMessage
-from langgraph.constants import RESUME
 
 from app.exceptions import DomainValidationError, StaleApprovalError
 from app.runtime.checkpoints import CheckpointState, get_checkpoint_state
 from app.runtime.protocol.events import (
     base_interrupt_id,
     is_elicitation,
-    wire_interrupt_id,
+    legacy_round,
 )
 
 
@@ -140,81 +143,24 @@ def pending_interrupts(checkpoint: Any) -> list[PendingInterrupt]:
     return found
 
 
-def _round(checkpoint: Any, interrupt: PendingInterrupt) -> int:
+def _legacy_round(checkpoint: Any, interrupt: PendingInterrupt) -> int:
     """Which round of its task's questions `interrupt` is, counted off
-    `checkpoint` — the one in the interrupt's own namespace, where its task
-    re-runs: langgraph keeps one checkpoint for every round and appends each
-    answer to the task's `__resume__` write."""
+    `checkpoint`: langgraph appends each answer to the task's `__resume__`
+    write, so the pending question is the one after the answers on record.
+
+    Only needed to check a pre-1.2.24 `<id>-<round>` answer: every round of
+    such an interrupt shares one id, so the id cannot tell rounds apart.
+    """
     saved = checkpoint.saved if isinstance(checkpoint, CheckpointState) else checkpoint
     answered = max(
         (
             len(value) if isinstance(value, (list, tuple)) else 1
             for task_id, channel, value in getattr(saved, "pending_writes", None) or []
-            if channel == RESUME and task_id == interrupt.task_id
+            if channel == "__resume__" and task_id == interrupt.task_id
         ),
         default=0,
     )
     return answered + 1
-
-
-def wire_id(checkpoint: Any, interrupt: PendingInterrupt) -> str | None:
-    """The id the client knows `interrupt` by (`wire_interrupt_id`), its round
-    counted off `checkpoint` (see `_round`)."""
-    if interrupt.id is None:
-        return None
-    return wire_interrupt_id(
-        interrupt.id, interrupt.value, _round(checkpoint, interrupt)
-    )
-
-
-def _scope_round(scope: InterruptScope) -> int:
-    """`_round` of a located interrupt, counted where it lives — the paused
-    subagent's checkpoint when a subagent asked."""
-    own = (
-        pending_interrupt(scope.state, scope.interrupt.id) if scope.namespace else None
-    )
-    return _round(scope.state, own) if own else _round(scope.root, scope.interrupt)
-
-
-def scope_wire_id(scope: InterruptScope) -> str | None:
-    """`wire_id` of a located interrupt (see `_scope_round`)."""
-    if scope.interrupt.id is None:
-        return None
-    return wire_interrupt_id(
-        scope.interrupt.id, scope.interrupt.value, _scope_round(scope)
-    )
-
-
-async def next_elicitation_rounds(
-    checkpointer: Any, thread_id: str, command: dict | None
-) -> dict[str, int]:
-    """The round each interrupt this run answers will be in if it asks again.
-
-    Read before the run, off a checkpoint the previous run finished writing:
-    a run's own checkpoint writes are flushed in the background, so counting
-    them while it streams races. An interrupt the run does not answer is new,
-    and in its first round.
-    """
-    resume = (command or {}).get("resume")
-    if not isinstance(resume, dict):
-        return {}
-    return {
-        scope.interrupt.id: _scope_round(scope) + 1
-        for scope in await load_interrupt_scopes(checkpointer, thread_id)
-        if scope.interrupt.id is not None and scope.interrupt.id in resume
-    }
-
-
-def address_input_requested(event: dict, rounds: dict[str, int]) -> dict:
-    """A live `input.requested` stamped with the id `/state` and resume use,
-    its round from `next_elicitation_rounds`."""
-    params = event["params"]
-    data = params["data"]
-    interrupt_id = data["interrupt_id"]
-    addressed = wire_interrupt_id(
-        interrupt_id, data.get("payload"), rounds.get(interrupt_id, 1)
-    )
-    return {**event, "params": {**params, "data": {**data, "interrupt_id": addressed}}}
 
 
 def pending_interrupt(
@@ -228,8 +174,8 @@ def pending_interrupt(
     """
     interrupts = pending_interrupts(checkpoint)
     if interrupt_id is not None:
-        # Clients address an elicitation round by its wire id (`wire_id`);
-        # it names the interrupt, `build_resume_command` checks the round.
+        # A client that was streaming across the upgrade to per-round ids may
+        # still hold the older `<id>-<round>` form of a pending elicitation.
         ids = {interrupt_id, base_interrupt_id(interrupt_id)}
         return next((i for i in interrupts if i.id in ids), None)
     return interrupts[0] if interrupts else None
@@ -405,13 +351,21 @@ def build_resume_command(
     ) or pending_interrupt(root)
     if pending is None:
         raise StaleApprovalError("No approval is pending on this thread.")
-    # An elicitation round must be named by its own wire id, counted where the
-    # interrupt lives (`scope`): an answer to an earlier round must not land
-    # on the next one.
-    own = pending_interrupt(scope, pending.id) if scope is not None else None
-    expected = wire_id(scope, own) if own else wire_id(root, pending)
-    if pending.id is not None and interrupt_id != expected:
+    # The answer must name the pending interrupt itself. Each round of an
+    # elicitation has its own id, so an answer to an earlier round does not
+    # land on the next one.
+    named = base_interrupt_id(interrupt_id) if isinstance(interrupt_id, str) else None
+    if pending.id is not None and named != pending.id:
         raise StaleApprovalError("This approval request was already handled.")
+    # A pre-1.2.24 `<id>-<round>` answer: the rounds of the interrupt it was
+    # issued for all share that id, so the round is checked too — counted
+    # where the interrupt lives (`scope`, for a paused subagent).
+    asked = legacy_round(interrupt_id) if isinstance(interrupt_id, str) else None
+    if asked is not None:
+        own = pending_interrupt(scope, pending.id) if scope is not None else None
+        current = _legacy_round(scope, own) if own else _legacy_round(root, pending)
+        if asked != current:
+            raise StaleApprovalError("This approval request was already handled.")
 
     payload = (
         _elicitation_payload(pending.value, resume)
