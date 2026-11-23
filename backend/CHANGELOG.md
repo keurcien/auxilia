@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.120](https://github.com/jr-k/auxilia/compare/backend-v0.11.119...backend-v0.11.120) (2026-11-23)
+
+
+### Features
+
+* sync upstream through [#478](https://github.com/jr-k/auxilia/issues/478) (Python 3.14, single-request run stream, dependency upgrades) ([#330](https://github.com/jr-k/auxilia/issues/330)) ([220ef82](https://github.com/jr-k/auxilia/commit/220ef82b540aa6d243c92c59841ad372555ac517))
+
 ## [0.11.119](https://github.com/jr-k/auxilia/compare/backend-v0.11.118...backend-v0.11.119) (2026-11-20)
 
 
