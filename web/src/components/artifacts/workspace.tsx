@@ -26,7 +26,7 @@ import {
   listArtifacts,
   readArtifact,
   saveArtifact,
-  slidesExportUrl,
+  googleExportUrl,
 } from "@/lib/api/resources/artifacts";
 import { getAuthProviders } from "@/lib/api/resources/auth";
 import type { Artifact } from "@/lib/api/resources/artifacts";
@@ -128,7 +128,9 @@ function entryTitle(entry: Entry): string {
 }
 
 function entryMeta(entry: Entry, withTime = false): string {
-  return entry.kind === "file" ? meta(entry.item, withTime) : entry.app.serverName;
+  return entry.kind === "file"
+    ? meta(entry.item, withTime)
+    : entry.app.serverName;
 }
 
 const FIDELITY =
@@ -164,7 +166,14 @@ function DownloadLink({ item, icon }: { item: Artifact; icon?: boolean }) {
 const PPTX_MIME =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
-// Export to Slides rides on the Google sign-in client, so it only exists when
+// Google files Drive converts each exportable artifact to.
+const GOOGLE_EXPORTS: Partial<Record<string, { label: string; icon: string }>> =
+  {
+    [PPTX_MIME]: { label: "Google Slides", icon: "slides" },
+    "text/csv": { label: "Google Sheets", icon: "sheets" },
+  };
+
+// Export to Google rides on the Google sign-in client, so it only exists when
 // the workspace has Google OAuth configured. Asked once per page load.
 let googleEnabled: Promise<boolean> | undefined;
 
@@ -179,28 +188,29 @@ function useGoogleEnabled(): boolean {
   return enabled;
 }
 
-function SlidesExportLink({ item }: { item: Artifact }) {
+function GoogleExportLink({ item }: { item: Artifact }) {
   const enabled = useGoogleEnabled();
-  if (!enabled) return null;
+  const target = GOOGLE_EXPORTS[item.mime_type];
+  if (!enabled || !target) return null;
   return (
     <a
-      href={slidesExportUrl(item)}
+      href={googleExportUrl(item)}
       target="_blank"
       rel="noopener noreferrer"
-      title="Open a copy in Google Slides"
-      aria-label={`Open ${item.title} in Google Slides`}
+      title={`Open a copy in ${target.label}`}
+      aria-label={`Open ${item.title} in ${target.label}`}
       className="inline-flex flex-none items-center gap-1.5 rounded-lg border border-hairline px-3.5 py-2 text-[13px] font-semibold text-ink hover:bg-hairline @max-[440px]/panel:px-2.5"
     >
       <Image
         unoptimized
-        src="https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/slides.png"
+        src={`https://pub-7a6e8912b3c448b8a8bfa47a0363f7bc.r2.dev/assets/icons/${target.icon}.png`}
         alt=""
         width={14}
         height={14}
         className="size-3.5 object-contain"
       />
       {/* Logo only on a narrow panel, so the header keeps its close button. */}
-      <span className="@max-[440px]/panel:hidden">Google Slides</span>
+      <span className="@max-[440px]/panel:hidden">{target.label}</span>
     </a>
   );
 }
@@ -220,7 +230,9 @@ function Card({
       onClick={onOpen}
       className={cn(
         "my-2 flex w-full max-w-md items-center gap-3 rounded-xl border p-2.5 text-left transition-colors",
-        selected ? "border-petrol bg-petrol-tint" : "border-border hover:bg-hover",
+        selected
+          ? "border-petrol bg-petrol-tint"
+          : "border-border hover:bg-hover",
       )}
     >
       <ArtifactIcon entry={entry} />
@@ -437,7 +449,9 @@ function FileList({
           </li>
         ))}
       </ul>
-      {entries.some((entry) => entry.kind === "file" && entry.item.temporary) && (
+      {entries.some(
+        (entry) => entry.kind === "file" && entry.item.temporary,
+      ) && (
         <p className="flex items-center gap-1.5 border-t border-hairline px-5 py-2.5 text-[11.5px] text-label">
           <span className="size-1.5 rounded-full bg-warning" />
           Files are temporary — download the ones you want to keep.
@@ -705,7 +719,9 @@ export function ArtifactWorkspace({
                 >
                   <FileText className="size-3.5" />
                   Artifacts
-                  <span className="font-mono text-[11px]">{entries.length}</span>
+                  <span className="font-mono text-[11px]">
+                    {entries.length}
+                  </span>
                 </button>
               )}
             </ChatHeaderActions>
@@ -762,9 +778,7 @@ export function ArtifactWorkspace({
                       )}
                     </p>
                   </div>
-                  {selected?.mime_type === PPTX_MIME && (
-                    <SlidesExportLink item={selected} />
-                  )}
+                  {selected && <GoogleExportLink item={selected} />}
                   {selected && <DownloadLink item={selected} />}
                   <CloseButton onClose={close} />
                 </header>
@@ -814,11 +828,7 @@ export function ArtifactWorkspace({
                 )}
               </>
             ) : (
-              <FileList
-                entries={newestFirst}
-                onOpen={pick}
-                onClose={close}
-              />
+              <FileList entries={newestFirst} onOpen={pick} onClose={close} />
             )}
           </aside>
         )}

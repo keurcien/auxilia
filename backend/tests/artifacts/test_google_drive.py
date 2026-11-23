@@ -2,8 +2,10 @@ import json
 from uuid import uuid4
 
 import httpx
+import pytest
 
-from app.artifacts.google_slides import SLIDES_MIME, find_export, upload_as_slides
+from app.artifacts.files import PPTX_MIME
+from app.artifacts.google_drive import find_export, google_url, upload_converted
 
 
 async def test_find_export_matches_the_artifact_property():
@@ -28,7 +30,14 @@ async def test_find_export_none_when_no_file():
         assert await find_export(client, uuid4()) is None
 
 
-async def test_upload_converts_and_tags_the_file():
+@pytest.mark.parametrize(
+    ("mime_type", "google_mime"),
+    [
+        (PPTX_MIME, "application/vnd.google-apps.presentation"),
+        ("text/csv", "application/vnd.google-apps.spreadsheet"),
+    ],
+)
+async def test_upload_converts_and_tags_the_file(mime_type, google_mime):
     artifact_id = uuid4()
     requests: list[httpx.Request] = []
 
@@ -41,15 +50,22 @@ async def test_upload_converts_and_tags_the_file():
         return httpx.Response(200, json={"id": "slides-2"})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        file_id = await upload_as_slides(
-            client, artifact_id, "Q3 Review", b"pptx-bytes", "application/x-pptx"
+        file_id = await upload_converted(
+            client, artifact_id, "Q3 Review", b"file-bytes", mime_type
         )
 
     assert file_id == "slides-2"
     start, put = requests
     metadata = json.loads(start.content)
-    assert metadata["mimeType"] == SLIDES_MIME
+    assert metadata["mimeType"] == google_mime
     assert metadata["appProperties"] == {"auxilia_artifact": str(artifact_id)}
-    assert start.headers["X-Upload-Content-Type"] == "application/x-pptx"
+    assert start.headers["X-Upload-Content-Type"] == mime_type
     assert str(put.url) == "https://upload.example/session?id=1"
-    assert put.content == b"pptx-bytes"
+    assert put.content == b"file-bytes"
+
+
+def test_google_url_opens_the_matching_editor():
+    assert google_url(PPTX_MIME, "a") == "https://docs.google.com/presentation/d/a/edit"
+    assert (
+        google_url("text/csv", "b") == "https://docs.google.com/spreadsheets/d/b/edit"
+    )

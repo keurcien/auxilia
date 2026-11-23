@@ -20,7 +20,12 @@ from app.artifacts.files import (
     detect_mime,
     read_bytes,
 )
-from app.artifacts.google_slides import find_export, slides_url, upload_as_slides
+from app.artifacts.google_drive import (
+    EXPORTS,
+    find_export,
+    google_url,
+    upload_converted,
+)
 from app.artifacts.models import ArtifactDB
 from app.artifacts.repository import ArtifactRepository
 from app.artifacts.schemas import ArtifactResponse, PresentFile
@@ -476,17 +481,17 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
                 "This temporary file expired with its execution environment."
             ) from exc
 
-    async def export_to_slides(
+    async def export_to_google(
         self, thread_id: str, artifact_id: UUID, access_token: str
     ) -> str:
-        """Open this artifact's Google Slides copy in the user's Drive, creating
-        it on first export. Returns the Slides URL."""
+        """Open this artifact's Google Slides/Sheets copy in the user's Drive,
+        creating it on first export. Returns the Google URL."""
         row = await self.repository.in_thread(thread_id, artifact_id)
         if row is None:
             raise NotFoundError(self.not_found_message)
-        if row.mime_type != PPTX_MIME:
+        if row.mime_type not in EXPORTS:
             raise DomainValidationError(
-                "Only PowerPoint files can be exported to Google Slides"
+                "Only PowerPoint and CSV files can be exported to Google"
             )
         async with httpx.AsyncClient(
             headers={"Authorization": f"Bearer {access_token}"}, timeout=60
@@ -496,10 +501,10 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
                 if file_id is None:
                     # Read the bytes only when there is no copy to reopen.
                     _, data = await self.content(thread_id, artifact_id)
-                    file_id = await upload_as_slides(
+                    file_id = await upload_converted(
                         client,
                         row.id,
-                        row.title.removesuffix(".pptx"),
+                        row.title.removesuffix(EXPORTS[row.mime_type][2]),
                         data,
                         row.mime_type,
                     )
@@ -512,7 +517,7 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
             except httpx.RequestError as exc:  # timeout, DNS, connection reset
                 logger.warning("Google Drive export failed: %r", exc)
                 raise DomainError("Google Drive could not be reached") from exc
-        return slides_url(file_id)
+        return google_url(row.mime_type, file_id)
 
 
 def get_artifact_service(db: AsyncSession = Depends(get_db)) -> ArtifactService:

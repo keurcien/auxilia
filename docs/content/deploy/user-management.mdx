@@ -70,18 +70,18 @@ Create the OAuth client in the Google Cloud Console:
 2. Application type: **Web application**
 3. Authorized redirect URIs (derived from `FRONTEND_URL`):
    - `<FRONTEND_URL>/api/backend/auth/google/callback` (sign-in)
-   - `<FRONTEND_URL>/api/backend/artifacts/google-slides/callback` ([export to Google Slides](#export-to-google-slides))
+   - `<FRONTEND_URL>/api/backend/artifacts/google/callback` ([export to Google Slides and Sheets](#export-to-google-slides-and-sheets))
 4. Copy the Client ID and Secret into the env vars above
 
 Users still need an invite (unless they're the first account). Google OAuth only changes *how* they authenticate, not *whether* they're allowed in.
 
-### Export to Google Slides
+### Export to Google Slides and Sheets
 
-With Google OAuth configured, PPTX files in the [artifact panel](/agents/artifacts) get a **Google Slides** button. It uploads the deck to the user's own Google Drive, converted to Google Slides, and opens it. Clicking again opens the same copy instead of creating a new one. It reuses the sign-in OAuth client, with one extra step in the same Google Cloud project:
+With Google OAuth configured, PPTX and CSV files in the [artifact panel](/agents/artifacts) get a **Google Slides** or **Google Sheets** button. It uploads the file to the user's own Google Drive, converted to Google Slides or Sheets, and opens it. Clicking again opens the same copy instead of creating a new one. It reuses the sign-in OAuth client, with one extra step in the same Google Cloud project:
 
 1. **APIs & Services** → **Library** → enable the **Google Drive API**
 2. **Google Auth Platform** → **Data access** → **Add or remove scopes** → add `https://www.googleapis.com/auth/drive.file`
-3. Add the `/api/backend/artifacts/google-slides/callback` redirect URI above to the OAuth client
+3. Add the `/api/backend/artifacts/google/callback` redirect URI above to the OAuth client
 
 `drive.file` only lets auxilia see the files it creates, not the rest of the user's Drive, and is a non-sensitive scope (no Google verification needed). Users are asked for Drive access on their first export only; sign-in itself never requests it. auxilia stores no Google token: each export uses a short-lived one.
 

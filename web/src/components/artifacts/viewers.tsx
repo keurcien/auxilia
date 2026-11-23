@@ -184,38 +184,79 @@ function CodeViewer({ artifact, bytes }: ViewerProps) {
     />
   );
 }
+const CSV_ROWS = 500;
+const CSV_COLUMNS = 50;
+const NUMBER = /^[-+]?[\d\s.,]*\d%?$/;
 function CsvViewer({ bytes }: ViewerProps) {
   const result = useMemo(
     () =>
+      // Header + CSV_ROWS, plus one more to know whether the file goes on.
       Papa.parse<string[]>(decode(bytes), {
-        preview: 501,
+        preview: CSV_ROWS + 2,
         skipEmptyLines: true,
       }),
     [bytes],
   );
-  const rows = result.data.slice(0, 500);
+  const [header = [], ...body] = result.data;
+  const rows = body.slice(0, CSV_ROWS);
+  const width = Math.max(header.length, ...rows.map((row) => row.length));
+  const columns = Array.from(
+    { length: Math.min(width, CSV_COLUMNS) },
+    (_, i) => i,
+  );
+  const cut = [
+    body.length > CSV_ROWS && `the first ${CSV_ROWS} rows`,
+    width > CSV_COLUMNS && `the first ${CSV_COLUMNS} of ${width} columns`,
+  ].filter(Boolean);
+  if (!header.length) {
+    return <p className="p-4 text-sm text-muted-foreground">Empty file.</p>;
+  }
   return (
-    <div className="overflow-auto p-3">
-      <p className="mb-3 text-xs text-muted-foreground">
-        Preview: up to 500 rows and 50 columns. Download for the complete file.
+    <div className="flex h-full flex-col">
+      <p className="px-3 py-2 text-xs text-muted-foreground">
+        {cut.length
+          ? `Showing ${cut.join(" and ")}. Download for the complete file.`
+          : `${rows.length} rows × ${width} columns`}
       </p>
-      <table className="w-full border-collapse text-sm">
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i}>
-              {row.slice(0, 50).map((cell, j) => (
-                <td
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="border-separate border-spacing-0 text-sm tabular-nums">
+          <thead className="sticky top-0 z-10 bg-muted">
+            <tr>
+              <th className="border-b border-r px-2 py-1.5" />
+              {columns.map((j) => (
+                <th
                   key={j}
-                  className="max-w-80 truncate border p-2"
-                  title={cell}
+                  className="max-w-80 truncate border-b border-r px-2 py-1.5 text-left font-semibold"
+                  title={header[j]}
                 >
-                  {cell}
-                </td>
+                  {header[j]}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className="hover:bg-muted/50">
+                <td className="border-b border-r px-2 py-1.5 text-right text-xs text-muted-foreground select-none">
+                  {i + 1}
+                </td>
+                {columns.map((j) => (
+                  <td
+                    key={j}
+                    className={cn(
+                      "max-w-80 truncate border-b border-r px-2 py-1.5",
+                      NUMBER.test(row[j] ?? "") && "text-right",
+                    )}
+                    title={row[j]}
+                  >
+                    {row[j]}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

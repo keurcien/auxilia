@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService, get_agent_service
-from app.artifacts.google_slides import DRIVE_FILE_SCOPE, oauth
+from app.artifacts.google_drive import DRIVE_FILE_SCOPE, oauth
 from app.artifacts.schemas import ArtifactResponse, ArtifactViewerResponse
 from app.artifacts.service import ArtifactService, get_artifact_service
 from app.artifacts.settings import artifact_settings
@@ -131,7 +131,7 @@ async def replace_artifact_content(
 
 
 # Fixed path: Google only redirects to URIs registered on the OAuth client.
-SLIDES_CALLBACK = "/artifacts/google-slides/callback"
+GOOGLE_CALLBACK = "/artifacts/google/callback"
 # Artifact routes outside a thread.
 slides_router = APIRouter(tags=["artifacts"])
 
@@ -150,9 +150,9 @@ def require_google_oauth() -> None:
 
 
 @router.get(
-    "/{artifact_id}/export/slides", dependencies=[Depends(require_google_oauth)]
+    "/{artifact_id}/export/google", dependencies=[Depends(require_google_oauth)]
 )
-async def export_to_slides(
+async def export_to_google(
     thread_id: str,
     artifact_id: UUID,
     request: Request,
@@ -163,14 +163,14 @@ async def export_to_slides(
     # state record: tied to this OAuth state, expiring with it, and replaced by
     # the next export (a superseded consent fails cleanly, never swaps files).
     client = oauth.google_drive
-    redirect_uri = f"{auth_settings.FRONTEND_URL}/api/backend{SLIDES_CALLBACK}"
+    redirect_uri = f"{auth_settings.FRONTEND_URL}/api/backend{GOOGLE_CALLBACK}"
     rv = await client.create_authorization_url(
         redirect_uri, login_hint=user.email, include_granted_scopes="true"
     )
     await client.save_authorize_data(
         request,
         redirect_uri=redirect_uri,
-        slides_export=[thread_id, str(artifact_id)],
+        google_export=[thread_id, str(artifact_id)],
         **rv,
     )
     return RedirectResponse(rv["url"], status_code=302)
@@ -178,14 +178,14 @@ async def export_to_slides(
 
 def drive_access_needed() -> HTMLResponse:
     return HTMLResponse(
-        "<p>Google Drive access is needed to export to Google Slides. "
+        "<p>Google Drive access is needed to export to Google. "
         "Close this tab and try again.</p>",
         status_code=403,
     )
 
 
-@slides_router.get(SLIDES_CALLBACK, dependencies=[Depends(require_google_oauth)])
-async def export_to_slides_callback(
+@slides_router.get(GOOGLE_CALLBACK, dependencies=[Depends(require_google_oauth)])
+async def export_to_google_callback(
     request: Request,
     user: UserDB = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
@@ -195,7 +195,7 @@ async def export_to_slides_callback(
     client = oauth.google_drive
     state = request.query_params.get("state")
     data = await client.framework.get_state_data(request.session, state)
-    pending = data.get("slides_export") if data else None
+    pending = data.get("google_export") if data else None
     if pending is None:
         raise DomainValidationError(
             "No export in progress. Start it again from the file."
@@ -213,7 +213,7 @@ async def export_to_slides_callback(
     thread_id, artifact_id = pending
     # Re-check: access may have changed during the Google round-trip.
     await authorize_thread_read(thread_id, user, thread_service, agent_service)
-    url = await service.export_to_slides(
+    url = await service.export_to_google(
         thread_id, UUID(artifact_id), token["access_token"]
     )
     return RedirectResponse(url, status_code=302)
