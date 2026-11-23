@@ -10,6 +10,7 @@ turn can resume from. They exist to make the P2-3 unification of
 
 import asyncio
 import json
+import logging
 from contextlib import aclosing, asynccontextmanager, contextmanager, suppress
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -330,15 +331,18 @@ async def test_hitl_interrupts_before_an_approval_gated_tool_runs(in_memory_runt
 
 @pytest.mark.asyncio
 async def test_model_failure_ends_the_turn_visibly_and_still_persists_the_sandbox(
-    in_memory_runtime,
+    in_memory_runtime, caplog
 ):
     """A model that keeps failing must not crash the run: ModelRetryMiddleware
     exhausts its retries and persists the failure as an AIMessage. `stream`'s
     `finally` is the only turn-end hook a sandbox gets, so the snapshot has to
-    run on that path too."""
+    run on that path too. The exception itself only survives in the logs."""
     agent, model = build_agent(script=[])  # exhausted script -> every call raises
 
-    with patch.object(Agent, "_persist_sandbox") as persist:
+    with (
+        patch.object(Agent, "_persist_sandbox") as persist,
+        caplog.at_level(logging.ERROR, logger="app.runtime.agent"),
+    ):
         await collect(agent, "boom")
 
     persist.assert_called_once()
@@ -346,6 +350,8 @@ async def test_model_failure_ends_the_turn_visibly_and_still_persists_the_sandbo
     last = (await final_messages(in_memory_runtime))[-1]
     assert last.type == "ai"
     assert "Model call failed" in last.content
+    [record] = caplog.records
+    assert record.exc_info is not None
 
 
 @pytest.mark.asyncio

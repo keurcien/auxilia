@@ -91,6 +91,14 @@ from app.threads.repository import ThreadRepository
 logger = logging.getLogger(__name__)
 
 
+def _log_model_failure(exc: Exception) -> str:
+    """`ModelRetryMiddleware`'s `on_failure`: once retries are exhausted the run
+    carries on with this text as the model's answer, so the exception is logged
+    here or nowhere."""
+    logger.error("Model call failed after retries", exc_info=exc)
+    return f"Model call failed with {type(exc).__name__}: {exc}"
+
+
 RECURSION_LIMIT_MESSAGE = (
     "I reached my step limit for this turn. Send any follow-up message "
     '(e.g. "continue") and I\'ll pick up where I left off.'
@@ -359,7 +367,7 @@ def build_agent_middleware(
     checkpointed = interrupt_on is not None
     return [
         *([PatchToolCallsMiddleware()] if checkpointed else []),
-        ModelRetryMiddleware(),
+        ModelRetryMiddleware(on_failure=_log_model_failure),
         ToolCallLimitMiddleware(
             run_limit=(recursion_limit - 1) // 2, exit_behavior="end"
         ),
