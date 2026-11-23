@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.30](https://github.com/keurcien/auxilia/compare/backend-v0.9.29...backend-v0.9.30) (2026-11-23)
+
+
+### Bug Fixes
+
+* **runtime:** log server errors that are turned into responses ([#476](https://github.com/keurcien/auxilia/issues/476)) ([11be441](https://github.com/keurcien/auxilia/commit/11be441834e2c1f6851110857f953a9a3c77c74d))
+
 ## [0.9.29](https://github.com/keurcien/auxilia/compare/backend-v0.9.28...backend-v0.9.29) (2026-11-23)
 
 
