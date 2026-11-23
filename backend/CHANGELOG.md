@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.29](https://github.com/keurcien/auxilia/compare/backend-v0.9.28...backend-v0.9.29) (2026-11-23)
+
+
+### Dependencies
+
+* **backend:** upgrade langchain, langgraph and deepagents ([#473](https://github.com/keurcien/auxilia/issues/473)) ([b861545](https://github.com/keurcien/auxilia/commit/b861545f176444c70c4a7ac79ca7e40394a001c3))
+* **backend:** upgrade web, MCP and database packages ([#472](https://github.com/keurcien/auxilia/issues/472)) ([64b938b](https://github.com/keurcien/auxilia/commit/64b938bbf38c0140e1321c43c170abfa59c2170c))
+
 ## [0.9.28](https://github.com/keurcien/auxilia/compare/backend-v0.9.27...backend-v0.9.28) (2026-11-19)
 
 
