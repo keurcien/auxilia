@@ -43,7 +43,7 @@ class UsageAttribution:
     model_id: str | None
 
     @classmethod
-    async def for_thread(cls, db: AsyncSession, thread: ThreadDB) -> "UsageAttribution":
+    async def for_thread(cls, db: AsyncSession, thread: ThreadDB) -> UsageAttribution:
         return cls(
             workspace_id=thread.workspace_id,
             thread_id=thread.id,

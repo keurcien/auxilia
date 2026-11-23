@@ -78,7 +78,7 @@ def _message_text(message: dict[str, Any]) -> str:
 def _sent_at(message: dict[str, Any]) -> datetime:
     try:
         return datetime.fromtimestamp(int(message.get("timestamp") or 0), tz=UTC)
-    except (TypeError, ValueError, OSError):
+    except TypeError, ValueError, OSError:
         return datetime.now(UTC)
 
 

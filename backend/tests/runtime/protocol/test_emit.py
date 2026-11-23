@@ -435,7 +435,11 @@ async def test_tools_channel_and_tool_role_messages(scenario):
         "description": "research X",
         "subagent_type": "helper",
     }
-    assert _data(task_events[1])["output"] == "sub says hello"
+    # deepagents attaches the namespace the subagent checkpointed under as the
+    # ToolMessage's artifact, and an artifact rides inside `output`.
+    output = _data(task_events[1])["output"]
+    assert output["content"] == "sub says hello"
+    assert output["artifact"]["checkpoint_ns"].startswith("tools:")
     # …and a closed tool-role message so the client's message projection
     # shows the result.
     tool_starts = [

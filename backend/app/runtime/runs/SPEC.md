@@ -301,6 +301,7 @@ copy).
 | `RUN_MAX_DURATION_SECONDS`       | 1800    | wall-clock cap per run (0 disables)               |
 | `RUN_WAKE_POLL_SECONDS`          | 0.5     | idle dispatcher Redis wake-token poll cadence     |
 | `RUN_CLAIM_FALLBACK_SECONDS`     | 10      | Postgres claim / stream-session safety cadence    |
+| `RUN_STREAM_IDLE_TIMEOUT_SECONDS` | 300    | a stream session ends after this long with no run to relay (0 disables) |
 | `RUN_CLAIM_INTERVAL_SECONDS`     | 0.5     | deprecated compatibility setting; unused          |
 | `RUN_HEARTBEAT_INTERVAL_SECONDS` | 5       | worker liveness stamp cadence                     |
 | `RUN_HEARTBEAT_TIMEOUT_SECONDS`  | 30      | liveness key TTL / reaper grace for `running`     |

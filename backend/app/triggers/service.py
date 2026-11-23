@@ -903,7 +903,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
             raise DomainError(
                 record.error or f"Run did not complete ({record.status.value})"
             )
-        result = await read_run_result(trigger.workspace_id, thread.id)
+        result = await read_run_result(trigger.workspace_id, thread.id, record.id)
         return WebhookTriggerResult(
             thread_id=thread.id, run_id=record.id, content=result["content"]
         )
@@ -1027,7 +1027,7 @@ class TriggerService(BaseService[TriggerDB, TriggerRepository]):
                 await self._ensure_agent_usable(
                     trigger.agent_id, owner, trigger.workspace_id
                 )
-            except (DomainValidationError, NotFoundError, PermissionDeniedError):
+            except DomainValidationError, NotFoundError, PermissionDeniedError:
                 logger.warning(
                     "Pausing trigger %s: its owner can no longer access its "
                     "project or agent %s",

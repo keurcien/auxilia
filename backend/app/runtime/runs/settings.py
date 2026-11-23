@@ -1,6 +1,6 @@
 import math
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 from app.background import MIN_INTERVAL_SECONDS
@@ -29,6 +29,14 @@ class RunSettings(BaseSettings):
     # dispatcher queries Postgres this often regardless. Also paces stream
     # sessions' Postgres safety checks.
     claim_fallback_seconds: float = 10.0
+    # How long a stream session stays open with no run to relay; 0 disables.
+    # An idle session carries nothing, and where the platform does not tell
+    # the process that a client left (Cloud Run over HTTP/1.1) it would
+    # otherwise count as an in-flight request until the request timeout. A
+    # client that is still there reconnects. Only 0 means off: a negative or
+    # non-finite value would never close a session either, so it is refused at
+    # boot rather than read as "disabled".
+    stream_idle_timeout_seconds: float = Field(default=300.0, ge=0, allow_inf_nan=False)
     # Reaper threshold: a `running` run whose liveness key is gone AND whose
     # last transition is older than this is reaped to `error`.
     heartbeat_timeout_seconds: int = 30

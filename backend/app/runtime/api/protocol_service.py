@@ -10,8 +10,9 @@ A thin orchestration layer over `RunService` and the run event log:
   run, relays its stored protocol events (filtered by the session's sink,
   stamped with `event_id`/`seq` derived from the log entry ids — see
   `wire.py`), then follows onto newer runs as they appear. A session is
-  thread-scoped and lives until the client closes it (the client's lifecycle
-  watcher holds one open for the thread's whole life).
+  thread-scoped and lives until the client closes it, or until the thread has
+  had no run to relay for `RUN_STREAM_IDLE_TIMEOUT_SECONDS`; the client
+  reconnects, so its lifecycle watcher still covers the thread's whole life.
 - `thread_state` builds the LangGraph-shaped `{values, next, tasks}` snapshot
   the client hydrates from; `next`/`tasks[].interrupts` drive its
   "is this thread active" gate, so they must reflect the active run and any
@@ -32,6 +33,7 @@ from redis.asyncio import Redis
 from app.database import AsyncSessionLocal, get_checkpointer
 from app.exceptions import DomainValidationError, NotFoundError
 from app.redis_client import get_redis
+from app.runtime.agent import read_run_result
 from app.runtime.api.protocol_repository import CheckpointWriteRepository
 from app.runtime.api.protocol_schemas import EventStreamBody, ProtocolCommand
 from app.runtime.checkpoints import checkpoint_thread_id, get_checkpoint_state
@@ -39,16 +41,21 @@ from app.runtime.hitl import (
     InterruptScope,
     elicitation_tool_call_id,
     load_interrupt_scopes,
-    scope_wire_id,
 )
+from app.runtime.middleware.structured_output import validate_structured_response
 from app.runtime.protocol.events import (
     base_interrupt_id,
     is_elicitation,
     terminal_lifecycle,
 )
-from app.runtime.protocol.filter import StreamFilter
+from app.runtime.protocol.filter import AnyFilter, StreamFilter
 from app.runtime.protocol.messages import serialize_message, serialize_message_preview
-from app.runtime.protocol.wire import decode_event, frame, seq_for_entry
+from app.runtime.protocol.wire import (
+    decode_event,
+    frame,
+    result_frame,
+    seq_for_entry,
+)
 from app.runtime.runs.events import RunEventStream
 from app.runtime.runs.models import RunDB
 from app.runtime.runs.service import RunService
@@ -194,12 +201,15 @@ class ProtocolService:
 
     async def stream_events(
         self, workspace_id, thread_id: str, body: EventStreamBody
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str]:
         """One protocol SSE session: replay the newest run, then follow newer
-        runs as they appear, until the client disconnects."""
+        runs as they appear, until the client disconnects or the thread has
+        had no run to relay for `RUN_STREAM_IDLE_TIMEOUT_SECONDS`."""
         sink = StreamFilter.from_request(body.channels, body.namespaces, body.depth)
         current: RunDB | None = None
         loop = asyncio.get_running_loop()
+        idle_timeout = run_settings.stream_idle_timeout_seconds
+        idle_since: float | None = None
         while True:
             # Read before Postgres: a run created between these two reads will
             # still change the marker observed by the idle loop below.
@@ -208,6 +218,7 @@ class ProtocolService:
             checked_at = loop.time()
             if run is not None:
                 current = run
+                idle_since = None
                 if run.workspace_id != workspace_id:
                     raise NotFoundError("Run not found")
                 async for sse in self._stream_run(run, sink, since=body.since):
@@ -217,6 +228,13 @@ class ProtocolService:
                 # so ordering uses the post-claim record.
                 current = await self.runs.get(run.id, workspace_id)
                 continue
+
+            # Ended only here, on Postgres's word that there is no run to
+            # relay, never on the Redis marker alone.
+            if idle_since is None:
+                idle_since = checked_at
+            elif 0 < idle_timeout <= checked_at - idle_since:
+                return
 
             # Idle sessions ask Postgres again only after a marker change or
             # the fallback interval. Redis failure returns a fresh sentinel on
@@ -252,9 +270,76 @@ class ProtocolService:
             return None  # pre-flush record; only possible in tests
         return await self.runs.next_for_thread(thread_id, workspace_id, after)
 
+    async def stream_invoke(
+        self, run: RunDB, sink: AnyFilter, output_schema: dict | None
+    ) -> AsyncGenerator[str]:
+        """`/runs/stream`: relay one run's events, then say how it ended.
+
+        The single-request counterpart of a thread session: it follows this
+        run only and closes by itself. The last frame is always a `result`
+        (see `wire.result_frame`): the response's status was sent before the
+        run started, so that frame is the only place its outcome can go.
+        """
+        # Past the 200, a frame is the only error channel left: neither a
+        # broken relay (Redis gone) nor an unreadable checkpoint may end the
+        # response without one.
+        try:
+            async for sse in self._stream_run(run, sink, since=None):
+                yield sse
+        except Exception:
+            logger.exception("Could not relay the events of run %s", run.id)
+            yield result_frame(
+                run_id=run.id,
+                status=RunStatus.error.value,
+                error="Could not relay the run's events.",
+            )
+            return
+        try:
+            result = await self._invoke_result(run, output_schema)
+        except Exception:
+            logger.exception("Could not read the result of run %s", run.id)
+            result = result_frame(
+                run_id=run.id,
+                status=RunStatus.error.value,
+                error="Could not read the run result.",
+            )
+        yield result
+
+    async def _invoke_result(self, run: RunDB, output_schema: dict | None) -> str:
+        """The `result` frame for a run whose relay has ended: the same
+        verdict `/runs/invoke` reaches, as data instead of a status code."""
+        record = await self.runs.get(run.id, run.workspace_id)
+        if not is_terminal(record.status):
+            # The relay only stops early for a run a newer one interrupts;
+            # its cancel just hasn't landed yet.
+            return result_frame(run_id=run.id, status=RunStatus.cancelled.value)
+        if record.status is not RunStatus.success:
+            return result_frame(
+                run_id=run.id, status=record.status.value, error=record.error
+            )
+        result = await read_run_result(run.workspace_id, run.thread_id, run.id)
+        # Same backstop as `/runs/invoke`: the schema contract must hold on
+        # everything returned as a success.
+        if output_schema is not None and (
+            error := validate_structured_response(
+                result["structured_response"], output_schema
+            )
+        ):
+            return result_frame(
+                run_id=run.id,
+                status=RunStatus.error.value,
+                error=f"Run completed without a valid structured response: {error}",
+            )
+        return result_frame(
+            run_id=run.id,
+            status=RunStatus.success.value,
+            content=result["content"],
+            structured_response=result["structured_response"],
+        )
+
     async def _stream_run(
-        self, run: RunDB, sink: StreamFilter, *, since: int | None
-    ) -> AsyncGenerator[str, None]:
+        self, run: RunDB, sink: StreamFilter | AnyFilter, *, since: int | None
+    ) -> AsyncGenerator[str]:
         """Relay one run's stored events through the session filter.
 
         Each log entry holds one protocol event; its entry id is the client's
@@ -439,7 +524,7 @@ class ProtocolService:
                 "name": "agent",
                 "interrupts": [
                     {
-                        "id": scope_wire_id(scope),
+                        "id": scope.interrupt.id,
                         "value": _hydrated_interrupt_value(
                             scope, elicitation_calls.get(scope.interrupt.id or "")
                         ),
@@ -566,7 +651,7 @@ def _append_missing_run_input(messages: list, run: RunDB) -> list:
         return messages
     try:
         input_messages = convert_to_messages(raw_messages)
-    except (ValueError, TypeError, KeyError, NotImplementedError):
+    except ValueError, TypeError, KeyError, NotImplementedError:
         logger.warning("Run %s contains invalid durable input", run.id, exc_info=True)
         return messages
 

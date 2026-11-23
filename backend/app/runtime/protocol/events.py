@@ -205,15 +205,22 @@ def is_elicitation(value: Any) -> bool:
     return isinstance(value, dict) and value.get("type") == ELICITATION_INTERRUPT_TYPE
 
 
-def wire_interrupt_id(interrupt_id: str, value: Any, round_: int) -> str:
-    """Give each round of an elicitation a distinct client-visible id."""
-    return f"{interrupt_id}-{round_}" if is_elicitation(value) else interrupt_id
-
-
 def base_interrupt_id(wire_id: str) -> str:
-    """Return the canonical checkpoint id inside a round-aware wire id."""
+    """The checkpoint id an answer names.
+
+    Interrupt ids are exposed as langgraph mints them. Before langgraph
+    1.2.24 every round of an elicitation shared one id, so a round was
+    exposed as `<id>-<round>`; that form is still accepted from a client
+    that was streaming across the upgrade.
+    """
     base, separator, round_ = wire_id.rpartition("-")
     return base if separator and round_.isdigit() else wire_id
+
+
+def legacy_round(wire_id: str) -> int | None:
+    """The round an older `<id>-<round>` answer names, or None for a bare id."""
+    _, separator, round_ = wire_id.rpartition("-")
+    return int(round_) if separator and round_.isdigit() else None
 
 
 def input_requested(

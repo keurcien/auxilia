@@ -22,12 +22,10 @@ async def create_token(
     service: PersonalAccessTokenService = Depends(get_pat_service),
 ) -> PersonalAccessTokenCreatedResponse:
     pat, plaintext = await service.create(current_user.id, data.name)
-    return PersonalAccessTokenCreatedResponse(
-        id=pat.id,
-        name=pat.name,
-        prefix=pat.prefix,
-        created_at=pat.created_at,
-        token=plaintext,
+    # Validated rather than built field by field: `created_at` is optional on
+    # the row until the server default is loaded, and required on the response.
+    return PersonalAccessTokenCreatedResponse.model_validate(
+        pat, update={"token": plaintext}
     )
 
 

@@ -68,7 +68,7 @@ class TriggerCreate(TriggerBase):
         return _normalize_group(value)
 
     @model_validator(mode="after")
-    def validate_type_fields(self) -> "TriggerCreate":
+    def validate_type_fields(self) -> TriggerCreate:
         if self.trigger_type == TriggerType.schedule:
             if not self.cron_expression or not self.timezone:
                 raise ValueError("Scheduled triggers require a schedule and timezone")

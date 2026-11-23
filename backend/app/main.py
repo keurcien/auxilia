@@ -228,8 +228,15 @@ async def domain_error_handler(_request: Request, exc: DomainError):
     Status and body both come from `app/exceptions.py` — the table and the
     exception's own `body()` — so adding an exception is a row, not a seventh
     near-identical handler (design review §2.3).
+
+    A 5xx is logged with its traceback: the response is the only other place
+    the failure lands, so without this a server error leaves no trace in the
+    logs or in log-based error reporting.
     """
-    return JSONResponse(status_code=status_for(exc), content=exc.body())
+    status = status_for(exc)
+    if status >= 500:
+        logger.error("%s: %s", type(exc).__name__, exc.detail, exc_info=exc)
+    return JSONResponse(status_code=status, content=exc.body())
 
 
 @app.exception_handler(ExceptionGroup)

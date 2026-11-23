@@ -1,4 +1,3 @@
-from typing import Generic, TypeVar
 from uuid import UUID
 
 from sqlalchemy import func
@@ -19,10 +18,7 @@ from app.pagination import PageParams
 # The consequence is that `self.model.id` below is not statically checked. Making
 # it checkable needs a shared "has an id" ancestor for both PK conventions, which
 # is a schema-touching change — tracked as P3-9, not something to sneak in here.
-ModelType = TypeVar("ModelType", bound=SQLModel)
-
-
-class BaseRepository(Generic[ModelType]):
+class BaseRepository[ModelType: SQLModel]:
     """Base repository with generic CRUD operations for SQLModel classes."""
 
     def __init__(self, model: type[ModelType], db: AsyncSession):

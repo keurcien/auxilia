@@ -289,7 +289,7 @@ class MCPResolutionScope:
         workspace_id: UUID,
         *,
         authorized_only: bool = False,
-    ) -> "MCPResolutionScope":
+    ) -> MCPResolutionScope:
         """Preload the graph's servers, optionally omitting unauthorized OAuth.
 
         Runs use ``authorized_only`` so an optional personal OAuth binding

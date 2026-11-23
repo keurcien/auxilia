@@ -134,7 +134,7 @@ def decode_session_token(token: str) -> SessionClaims | None:
             actor_id=actor_id,
             actor_workspace_id=actor_workspace_id,
         )
-    except (JWTError, KeyError, TypeError, ValueError):
+    except JWTError, KeyError, TypeError, ValueError:
         # ValueError: a signed token whose `sub` isn't a UUID. Treat it as
         # "not authenticated" (401) rather than letting it escape as a 500.
         return None
@@ -191,7 +191,7 @@ def renew_access_token(token: str) -> str | None:
             + timedelta(days=auth_settings.SESSION_MAX_DAYS)
             - now
         )
-    except (JWTError, KeyError, TypeError, ValueError):
+    except JWTError, KeyError, TypeError, ValueError:
         return None
 
     lifetime = timedelta(minutes=auth_settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)

@@ -262,7 +262,7 @@ def decode_message_write(type_tag: str, blob: bytes) -> list[AIMessage]:
 
 async def iter_cost_messages(
     db: AsyncSession, internal_thread_id: str, pause_seconds: float = 0
-) -> AsyncGenerator[AIMessage, None]:
+) -> AsyncGenerator[AIMessage]:
     """Stream task writes once on the request connection.
 
     Decode off the event loop and optionally pause between small chunks. This

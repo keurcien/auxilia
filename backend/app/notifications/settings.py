@@ -23,7 +23,7 @@ class WebPushSettings(BaseSettings):
         )
 
     @model_validator(mode="after")
-    def validate_vapid_configuration(self) -> "WebPushSettings":
+    def validate_vapid_configuration(self) -> WebPushSettings:
         configured = (
             self.vapid_public_key,
             self.vapid_private_key,

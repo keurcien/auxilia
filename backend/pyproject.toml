@@ -4,7 +4,7 @@ version = "0.11.119"
 description = "auxilia backend — FastAPI service for hosting MCP-powered AI assistants"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.15.0",
     "anyio>=4.5.0",
@@ -31,7 +31,13 @@ dependencies = [
     "aiohttp>=3.13.3",
     "langfuse>=4.15.6",
     "h2>=4.3.0",
-    "deepagents>=0.7.13",
+    # app/runtime/harness.py reproduces this version's middleware bundle and
+    # imports modules it introduced; tests/runtime/test_harness_parity.py
+    # fails on a release that changes the bundle.
+    "deepagents>=0.7.41",
+    # >=1.2.24: each round of a re-asked interrupt gets its own id, which the
+    # HITL resume path relies on (app/runtime/hitl.py).
+    "langgraph>=1.2.24",
     "opensandbox>=0.1.6",
     "jsonschema>=4.26.0",
     "croniter>=6.2.3",
@@ -70,7 +76,7 @@ dev = [
 
 [tool.ruff]
 indent-width = 4
-target-version = "py311"
+target-version = "py314"
 exclude = ["alembic"]
 
 [tool.ruff.lint]
@@ -138,7 +144,7 @@ lines-after-imports = 2
 # `app/repository.py` / `app/service.py` were meant to catch and currently can't
 # (nothing type-checked this codebase before), not annotating every function.
 # Tighten per-module as modules get cleaned up — see backend-cleanup-todo.md P0-3.
-python_version = "3.11"
+python_version = "3.14"
 files = ["app"]
 exclude = "^alembic/"
 explicit_package_bases = true

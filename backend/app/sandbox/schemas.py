@@ -42,7 +42,7 @@ class CloudRunConfig(SandboxConfigBase):
     allow_egress: bool = False
 
     @model_validator(mode="after")
-    def require_secret(self) -> "CloudRunConfig":
+    def require_secret(self) -> CloudRunConfig:
         # The gateway fails closed without its shared secret — saving a
         # secretless Cloud Run sandbox would advertise tools that can never
         # work (formerly the boot-time `enabled` check).
@@ -59,7 +59,7 @@ class DaytonaConfig(SandboxConfigBase):
     auto_stop_interval: int = Field(default=15, ge=0)
 
     @model_validator(mode="after")
-    def require_secret(self) -> "DaytonaConfig":
+    def require_secret(self) -> DaytonaConfig:
         if not self.secret:
             raise ValueError("Daytona sandboxes require an API key")
         return self

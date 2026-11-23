@@ -161,7 +161,7 @@ async def load_slack_attachments(
                     token,
                     min(MAX_SLACK_FILE_BYTES, remaining),
                 )
-            except (httpx.HTTPError, ValueError):
+            except httpx.HTTPError, ValueError:
                 data = None
             if data is None:
                 rejected_names.append(name)

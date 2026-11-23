@@ -58,7 +58,7 @@ class ServerURLOption(BaseModel):
     description: str | None = None
 
     @model_validator(mode="after")
-    def validate_option(self) -> "ServerURLOption":
+    def validate_option(self) -> ServerURLOption:
         if not self.label.strip():
             raise ValueError("URL option label must not be empty")
         _validate_http_url(self.url, "URL option")
@@ -99,7 +99,7 @@ class OfficialServer(BaseModel):
     quirks: list[MCPCompatibilityQuirk] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_entry(self) -> "OfficialServer":
+    def validate_entry(self) -> OfficialServer:
         if not self.name.strip():
             raise ValueError("server name must not be empty")
         _validate_http_url(self.url)
@@ -169,7 +169,7 @@ class CatalogDocument(BaseModel):
     servers: list[OfficialServer]
 
     @model_validator(mode="after")
-    def entries_are_non_empty_and_unique(self) -> "CatalogDocument":
+    def entries_are_non_empty_and_unique(self) -> CatalogDocument:
         if not self.servers:
             raise ValueError("catalog has no servers")
         # URL and name are list keys for catalog templates. Configured workspace

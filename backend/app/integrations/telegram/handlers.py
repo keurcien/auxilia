@@ -500,7 +500,7 @@ async def _handle_callback(
                 client=client,
             )
             return
-    except (DomainError, ValueError, KeyError):
+    except DomainError, ValueError, KeyError:
         logger.info("Telegram callback is no longer valid", exc_info=True)
         await client.answer_callback(callback_id, "This action is no longer valid")
         return

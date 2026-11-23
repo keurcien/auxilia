@@ -43,7 +43,7 @@ class UserDB(UserBase, BaseDBModel, table=True):
     _workspace_team_id: UUID | None = PrivateAttr(default=None)
     _active_workspace_id: UUID | None = PrivateAttr(default=None)
 
-    oauth_accounts: list["OAuthAccountDB"] = Relationship(back_populates="user")
+    oauth_accounts: list[OAuthAccountDB] = Relationship(back_populates="user")
 
     def _private(self, name: str, default: T) -> T:
         # Rows loaded by SQLAlchemy bypass pydantic's ``__init__``, so
@@ -66,7 +66,7 @@ class UserDB(UserBase, BaseDBModel, table=True):
     def active_workspace_id(self) -> UUID | None:
         return self._private("_active_workspace_id", None)
 
-    def set_workspace_membership(self, membership: "WorkspaceMembershipDB") -> None:
+    def set_workspace_membership(self, membership: WorkspaceMembershipDB) -> None:
         self._workspace_role = membership.role
         self._workspace_team_id = membership.team_id
         self._active_workspace_id = membership.workspace_id

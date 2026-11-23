@@ -78,7 +78,7 @@ def search_tokens(value: str) -> tuple[str, ...]:
 def _tool_schema(tool: BaseTool) -> dict[str, Any]:
     try:
         schema = tool.get_input_jsonschema()
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError, TypeError, ValueError:
         return {}
     return schema if isinstance(schema, dict) else {}
 

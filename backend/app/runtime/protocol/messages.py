@@ -287,5 +287,5 @@ def text_of(content: Any) -> str:
         return "".join(p.get("text", "") for p in content)
     try:
         return json.dumps(content, default=json_default)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return str(content)

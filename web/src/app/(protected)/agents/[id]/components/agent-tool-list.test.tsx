@@ -262,10 +262,12 @@ describe("agent tool map persistence", () => {
 		connected = true;
 		await vi.advanceTimersByTimeAsync(2000);
 
-		expect(mcpServersApi.syncAgentMcpServerTools).toHaveBeenCalledWith(
-			AGENT_ID,
-			SERVER.id,
-		);
+		await vi.waitFor(() => {
+			expect(mcpServersApi.syncAgentMcpServerTools).toHaveBeenCalledWith(
+				AGENT_ID,
+				SERVER.id,
+			);
+		});
 		expect(persisted).toHaveBeenCalledWith(SERVER.id, {
 			search: "always_allow",
 		});

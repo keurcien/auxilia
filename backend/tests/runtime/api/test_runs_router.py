@@ -236,19 +236,18 @@ def test_create_run_creates_without_an_oauth_gate(
     assert fake.calls == ["create"]
 
 
-def test_legacy_stream_endpoints_are_gone(client: TestClient, mock_db, current_user):
-    """Live streaming is the protocol's `/threads/{id}/stream/events` now; the
-    pre-protocol SSE routes must not linger as a second wire format."""
+def test_run_reattach_route_is_not_served(client: TestClient, mock_db, current_user):
+    """`POST /runs/stream` relays one run in a single request; re-attaching to
+    a run is the thread session's job (`/threads/{id}/stream/events`), so the
+    pre-protocol per-run GET must not linger beside it."""
     thread = _owned_thread(current_user)
     _mock_thread_lookup(mock_db, thread)
     fake = _FakeRunService()
     app.dependency_overrides[get_run_service] = lambda: fake
     try:
-        created = client.post(f"/threads/{thread.id}/runs/stream", json={"input": {}})
         reattached = client.get(f"/threads/{thread.id}/runs/run1/stream")
     finally:
         app.dependency_overrides.pop(get_run_service, None)
-    assert created.status_code in (404, 405)
     assert reattached.status_code in (404, 405)
     assert fake.calls == []
 

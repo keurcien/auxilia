@@ -73,7 +73,7 @@ class AuthSettings(BaseSettings):
         return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")
-    def _validate_smtp(self) -> "AuthSettings":
+    def _validate_smtp(self) -> AuthSettings:
         if self.SMTP_USE_TLS and self.SMTP_USE_SSL:
             raise ValueError("SMTP_USE_TLS and SMTP_USE_SSL cannot both be enabled")
         if (self.SMTP_USERNAME is None) != (self.SMTP_PASSWORD is None):

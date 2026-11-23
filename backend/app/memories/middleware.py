@@ -82,7 +82,7 @@ def _loaded_ids(state: Mapping[str, Any]) -> list[UUID]:
     for value in cast(list[str], raw):
         try:
             resolved.append(UUID(value))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return resolved[-LOADED_MEMORY_LIMIT:]
 

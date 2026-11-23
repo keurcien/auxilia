@@ -158,5 +158,5 @@ def decode_scoped_token(token: str, scope: str) -> ScopedToken | None:
             secret=secret,
             remember_me=payload.get("remember_me") is True,
         )
-    except (JWTError, KeyError, TypeError, ValueError):
+    except JWTError, KeyError, TypeError, ValueError:
         return None

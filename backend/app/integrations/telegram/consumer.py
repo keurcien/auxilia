@@ -49,7 +49,7 @@ class TelegramDelivery(TypedDict):
     tool_discovery_mode: NotRequired[str]
 
 
-def build_telegram_run_consumer(record: RunDB) -> "TelegramRunConsumer | None":
+def build_telegram_run_consumer(record: RunDB) -> TelegramRunConsumer | None:
     delivery = record.delivery
     if not delivery or delivery.get("channel") != TELEGRAM_CHANNEL:
         return None
@@ -58,7 +58,7 @@ def build_telegram_run_consumer(record: RunDB) -> "TelegramRunConsumer | None":
         return None
     try:
         UUID(str(delivery["telegram_bot_id"]))
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         logger.error("Telegram delivery bot is invalid for run %s", record.id)
         return None
     return TelegramRunConsumer(record)

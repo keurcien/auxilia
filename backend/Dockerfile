@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build stage - install dependencies using uv
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 
 # Runtime stage - minimal image
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.14-slim-bookworm AS runtime
 
 WORKDIR /app
 

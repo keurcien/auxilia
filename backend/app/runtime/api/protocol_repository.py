@@ -20,7 +20,7 @@ class CheckpointWriteRepository:
 
     async def iter_message_writes(
         self, thread_id: str, *, newest_first: bool = True
-    ) -> AsyncGenerator[tuple[str, bytes], None]:
+    ) -> AsyncGenerator[tuple[str, bytes]]:
         """`(type, blob)` of every `messages`-channel write of the thread, in
         every namespace — streamed, so a caller that stops early never holds
         more than one write. Newest checkpoint first when `newest_first`;
@@ -43,7 +43,7 @@ class CheckpointWriteRepository:
 
     async def iter_timed_message_writes(
         self, thread_id: str
-    ) -> AsyncGenerator[tuple[str, bytes, str | None], None]:
+    ) -> AsyncGenerator[tuple[str, bytes, str | None]]:
         """`(type, blob, ts)` of every `messages`-channel write, unordered;
         `ts` is the ISO timestamp of the checkpoint the write belongs to."""
         stmt = text(
@@ -65,7 +65,7 @@ class CheckpointWriteRepository:
 
     async def iter_namespace_message_writes(
         self, thread_id: str, checkpoint_ns: str
-    ) -> AsyncGenerator[tuple[str, str, bytes], None]:
+    ) -> AsyncGenerator[tuple[str, str, bytes]]:
         """`(task_id, type, blob)` of the `messages`-channel writes of one
         namespace, newest checkpoint first, streamed like `iter_message_writes`."""
         stmt = text(

@@ -178,7 +178,7 @@ class RunEventStream:
 
     async def subscribe(
         self, last_event_id: str = "0", *, block_ms: int = 15000
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str]:
         """Yield stored events from `last_event_id` onward until the terminal.
 
         `"0"` replays the whole log (fresh subscriber); pass a client's last seen
@@ -244,7 +244,7 @@ class BufferedEventPublisher:
         self._stopping = asyncio.Event()
         self._error: BaseException | None = None
 
-    async def __aenter__(self) -> "BufferedEventPublisher":
+    async def __aenter__(self) -> BufferedEventPublisher:
         self._flusher = asyncio.create_task(self._flush_periodically())
         return self
 

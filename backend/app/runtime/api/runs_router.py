@@ -1,14 +1,17 @@
 """HTTP surface for the durable runtime, nested under a thread.
 
-Run CRUD, `/invoke` (create + block for the result), `/cancel`, and the
-`/runs/active` poll. Live streaming is the Agent Streaming Protocol's job:
+Run CRUD, `/invoke` (create + block for the result), `/stream` (create + relay
+that run's events, for external clients), `/cancel`, and the `/runs/active`
+poll. A thread's live session is the Agent Streaming Protocol's job:
 `POST /threads/{id}/commands` starts runs and `POST /threads/{id}/stream/events`
-relays their event log (`app/runtime/api/protocol_router.py`).
+relays their event log (`app/runtime/api/protocol_router.py`). `/stream` speaks
+the same frames: it is one more reader of the log, not a second wire format.
 """
 
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core.service import AgentService, get_agent_service
@@ -25,7 +28,9 @@ from app.exceptions import (
 )
 from app.redis_client import get_redis
 from app.runtime.agent import read_run_result
+from app.runtime.api.protocol_service import ProtocolService
 from app.runtime.middleware.structured_output import validate_structured_response
+from app.runtime.protocol.filter import run_stream_filter
 from app.runtime.runs.schemas import (
     QueuedPromptCreate,
     QueuedPromptOrder,
@@ -33,6 +38,7 @@ from app.runtime.runs.schemas import (
     QueuedPromptResponse,
     RunCreate,
     RunResponse,
+    RunStreamCreate,
     has_queued_prompt_content,
     queued_prompt_content_error,
     queued_prompt_input,
@@ -54,8 +60,19 @@ router = APIRouter(prefix="/threads/{thread_id}/runs", tags=["runs"])
 user_runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
 
+SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
 def get_run_service() -> RunService:
     return RunService(get_redis())
+
+
+def get_protocol_service() -> ProtocolService:
+    return ProtocolService(get_redis())
 
 
 def _parse_run_config(config: dict | None) -> tuple[str | None, dict | None]:
@@ -188,7 +205,7 @@ async def invoke_run(
         raise DomainError(
             record.error or f"Run did not complete ({record.status.value})"
         )
-    result = await read_run_result(thread.workspace_id, thread_id)
+    result = await read_run_result(thread.workspace_id, thread_id, record.id)
     # Backstop for paths where the formatting turn never ran (e.g. recursion
     # fallback): the schema contract must hold on everything returned here.
     if output_schema is not None and (
@@ -200,6 +217,52 @@ async def invoke_run(
             f"Run completed without a valid structured response: {error}"
         )
     return result
+
+
+@router.post("/stream")
+async def stream_run(
+    thread_id: str,
+    body: RunStreamCreate,
+    thread: ThreadResponse = Depends(authorize_thread),
+    runs: RunService = Depends(get_run_service),
+    protocol: ProtocolService = Depends(get_protocol_service),
+    db: AsyncSession = Depends(get_db),  # dependency-cached: same session auth used
+):
+    """Create a run and stream its events until it finishes (SSE).
+
+    `/invoke` for a caller that wants to watch: same body, same durable run,
+    but the open connection relays the run's protocol events and closes with
+    a `result` frame. Everything that can refuse the run (the model, the
+    sandbox, an active run) is decided here, before the stream opens, so it
+    still answers with a real status code; past that point the outcome is in
+    the `result` frame. Closing the connection does not cancel the run:
+    `POST /runs/{run_id}/cancel` does (the id is in `X-Run-Id`).
+    """
+    # Release the pooled connection before RunService opens its own session
+    # (holding both risks pool starvation) and before the response streams
+    # for the whole run. Optional OAuth MCP servers are filtered from the
+    # toolset while the worker builds the agent, as for /invoke.
+    await db.commit()
+    trigger, config_overrides = _parse_run_config(body.config)
+    record = await runs.create(
+        thread_id=thread_id,
+        user_id=str(thread.user_id),
+        input=body.input,
+        command=body.command,
+        trigger=trigger,
+        config_overrides=config_overrides,
+        multitask_strategy=body.multitask_strategy,
+        output_schema=body.output_schema,
+    )
+    return StreamingResponse(
+        protocol.stream_invoke(
+            record,
+            run_stream_filter(body.channels, subagents=body.subagents),
+            body.output_schema,
+        ),
+        media_type="text/event-stream",
+        headers={**SSE_HEADERS, "X-Run-Id": record.id},
+    )
 
 
 @router.post("", status_code=201)

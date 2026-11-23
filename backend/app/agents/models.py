@@ -34,7 +34,7 @@ class EffectivePermission(str, Enum):
     admin = "admin"
     owner = "owner"
 
-    def covers(self, at_least: "EffectivePermission") -> bool:
+    def covers(self, at_least: EffectivePermission) -> bool:
         """True when this permission is `at_least` or stronger."""
         return _PERMISSION_RANK[self] >= _PERMISSION_RANK[at_least]
 

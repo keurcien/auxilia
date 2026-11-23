@@ -2,9 +2,14 @@
 
 Every path that talks to a remote MCP server — the agent runtime
 (``app/runtime/toolset.py``), the handshake probes (``connectivity.py``) and the
-MCP-app endpoints — gets its client from :func:`build_client`, so the three
-things auxilia needs on top of the framework defaults are decided once:
+MCP-app endpoints — gets its client from :func:`build_client`, so the things
+auxilia needs on top of the framework defaults are decided once:
 
+* **Client identity.** The client names itself ``auxilia`` (with the backend
+  version) instead of the SDK's anonymous ``mcp`` default: in ``initialize``
+  on legacy servers, in every request's ``io.modelcontextprotocol/clientInfo``
+  on 2026-07-28 ones, where the spec says clients SHOULD send it. Servers use
+  it for display, logging and tracing only; it is self-reported and unverified.
 * **MCP Apps capability.** Servers gate UI-bearing tools (Metabase's
   ``visualize_query``) behind the client advertising the
   ``io.modelcontextprotocol/ui`` extension during the handshake. The SDK's
@@ -34,7 +39,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Unpack
 
 import httpx2
 from fastmcp.client import Client
@@ -44,11 +49,11 @@ from mcp import ClientSession
 from mcp.client import advertise
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.types import CallToolResult
-from typing_extensions import Unpack
+from mcp.types import CallToolResult, Implementation
 
 from app.mcp.client.exceptions import as_oauth_required
 from app.mcp.compatibility import MCPCompatibilityQuirk, matching_quirks
+from app.version import BACKEND_VERSION
 
 
 logger = logging.getLogger(__name__)
@@ -65,6 +70,8 @@ _fastmcp_logger.propagate = True
 # https://github.com/modelcontextprotocol/ext-apps (spec 2026-01-26).
 UI_EXTENSION = "io.modelcontextprotocol/ui"
 UI_CAPABILITY = {"mimeTypes": ["text/html;profile=mcp-app"]}
+
+CLIENT_INFO = Implementation(name="auxilia", version=BACKEND_VERSION)
 
 
 @dataclass(frozen=True)
@@ -290,7 +297,9 @@ def build_client(spec: ConnectionSpec, *, terminate_on_close: bool = True) -> Cl
         httpx_client_factory=httpx_client_factory,
     )
     client: Client[Any] = RecoveringClient(
-        transport, extensions=[advertise(UI_EXTENSION, UI_CAPABILITY)]
+        transport,
+        client_info=CLIENT_INFO,
+        extensions=[advertise(UI_EXTENSION, UI_CAPABILITY)],
     )
     # FastMCP's own proxy swaps the session class the same way; the attribute
     # is the only way in until `Client` takes transport options directly.

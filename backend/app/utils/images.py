@@ -75,7 +75,7 @@ def _process_image(raw: bytes) -> ProcessedImage:
             normalized.save(output, format="WEBP", quality=85, method=6)
     except DomainValidationError:
         raise
-    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError):
+    except Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError:
         raise DomainValidationError("Invalid or corrupted image") from None
 
     data = output.getvalue()
@@ -159,7 +159,7 @@ def _process_notification_badge(raw: bytes) -> ProcessedImage:
             badge.save(output, format="PNG", optimize=True)
     except DomainValidationError:
         raise
-    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError):
+    except Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError:
         raise DomainValidationError("Invalid or corrupted image") from None
 
     data = output.getvalue()

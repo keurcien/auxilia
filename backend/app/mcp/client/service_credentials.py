@@ -379,7 +379,7 @@ class CustomHTTPHeadersAuth(httpx2.Auth):
 
     def auth_flow(
         self, request: httpx2.Request
-    ) -> Generator[httpx2.Request, httpx2.Response, None]:
+    ) -> Generator[httpx2.Request, httpx2.Response]:
         for name, value in self._headers:
             request.headers[name] = value
         yield request
@@ -555,7 +555,7 @@ class AWSIAMAuth(httpx2.Auth):
 
     def auth_flow(
         self, request: httpx2.Request
-    ) -> Generator[httpx2.Request, httpx2.Response, None]:
+    ) -> Generator[httpx2.Request, httpx2.Response]:
         try:
             body = request.content
         except httpx2.RequestNotRead as exc:

@@ -352,7 +352,7 @@ async def _can_use_agent(
             user_role=user.role,
             user_team_id=user.team_id,
         )
-    except (NotFoundError, PermissionDeniedError):
+    except NotFoundError, PermissionDeniedError:
         return False
     return True
 
@@ -1186,7 +1186,7 @@ async def handle_agent_message_shortcut_submission(
         return
     try:
         source = json.loads(payload.view.private_metadata)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return
     source_text = source.get("text")
     source_user = source.get("user")

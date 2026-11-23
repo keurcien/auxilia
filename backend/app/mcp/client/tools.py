@@ -195,7 +195,7 @@ def normalize_mcp_tool_content(content: Any) -> Any:
                 replacement = _typed_generic_blob(
                     block, base64.b64decode(encoded, validate=True)
                 )
-            except (binascii.Error, ValueError):
+            except binascii.Error, ValueError:
                 replacement = None
         if replacement is not None:
             normalized.append(replacement)

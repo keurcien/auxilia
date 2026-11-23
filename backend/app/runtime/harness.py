@@ -20,12 +20,15 @@ The deviations we take on purpose are listed in that file's
   it from the default bundle; the web client renders the ``todos`` channel,
   so the parent keeps it. The general-purpose subagent does not — its todos
   are never shown.
-- **No ``DeepAgentState``.** 0.7 compiles with a ``DeltaChannel`` on
-  ``messages`` (O(N) checkpoint growth). That channel only materialises
-  ``messages`` in ``channel_values`` on snapshot steps, and the runtime reads
-  that key raw off checkpoint tuples in several places (``hitl.py``,
-  ``api/protocol_service.py``, ``read_run_result``, the thread read endpoint).
-  Adopting it means moving those readers onto ``aget_state`` first.
+- **No ``ModelRefusalMiddleware``.** Since 0.7.41 deepagents ends every stack
+  with it, which turns a model refusal into a ``ModelRefusalError`` — a failed
+  run — instead of an answer the user can read. Plain agents do not have it,
+  so adopting it here would make the same refusal behave differently
+  depending on whether a sandbox is bound. Taking it is a product decision
+  for both paths at once, not a side effect of a dependency upgrade.
+- **No ``_ParentNotifierMiddleware``.** It reports a finished run back to the
+  agent that launched it with ``start_async_task``; the runtime has no async
+  subagents, so it would be a hook that never fires.
 
 Two consequences of the reproduction are worth knowing, because neither is
 visible at the call site:
@@ -43,8 +46,10 @@ visible at the call site:
 
 from typing import Any
 
+from deepagents._tools import _apply_tool_description_overrides
 from deepagents._version import _lc_version
 from deepagents.middleware._prompt_caching import append_prompt_caching_middleware
+from deepagents.middleware._state import private_state_field_names
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import (
@@ -52,6 +57,7 @@ from deepagents.middleware.subagents import (
     SubAgentMiddleware,
 )
 from deepagents.middleware.summarization import create_summarization_middleware
+from deepagents.middleware.unsupported_content import UnsupportedContentMiddleware
 from deepagents.profiles.harness.harness_profiles import (
     GeneralPurposeSubagentProfile,
     HarnessProfile,
@@ -208,12 +214,14 @@ def harness_middleware(
 ) -> list:
     """The harness middleware that runs *before* the caller's own stack.
 
-    Order matters and mirrors deepagents exactly: skills (when the run has
-    any), filesystem, the task tool, summarization, then the patcher — with
-    our own `TodoListMiddleware` in front (see the module docstring). The
-    general-purpose subagent inherits the parent's normal toolset and, as in
-    deepagents, the parent's skills. A caller may provide a narrower
-    ``general_purpose_tools`` list for host actions that must remain parent-only.
+    Order matters and mirrors deepagents exactly: filesystem, the task tool,
+    summarization, then the patcher — with our own `TodoListMiddleware` in
+    front (see the module docstring). ``skills`` is only handed to the
+    general-purpose subagent here, which inherits the parent's normal toolset
+    and, as in deepagents, the parent's skills; the parent's own skills
+    middleware is in `harness_trailing_middleware`. A caller may provide a
+    narrower ``general_purpose_tools`` list for host actions that must remain
+    parent-only.
     """
     profile = _profile(model)
     supplied = list(subagents or [])
@@ -234,15 +242,13 @@ def harness_middleware(
             general_purpose_interrupt_on,
         )
         specs = [default, *supplied] if default is not None else supplied
-    middleware: list = [TodoListMiddleware()]
-    if skills is not None and skills_enabled:
-        middleware.append(skills_index_middleware(skills, sandbox=True))
-    middleware.append(
+    middleware: list = [
+        TodoListMiddleware(),
         FilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=profile.tool_description_overrides,
-        )
-    )
+        ),
+    ]
     if specs:
         middleware.append(
             SubAgentMiddleware(
@@ -259,17 +265,53 @@ def harness_middleware(
     return middleware
 
 
-def harness_trailing_middleware(model) -> list:
+def harness_trailing_middleware(model, skills=None) -> list:
     """The harness middleware that runs *after* the caller's own stack.
 
-    Prompt caching is unconditional in deepagents; Anthropic's is a no-op on
-    other providers, and the Bedrock / Fireworks variants are only appended
-    when their packages are installed (they are not).
+    Skills come first (when the run has any): since deepagents 0.7.41 the
+    index is innermost before caching, so it sees the compacted conversation
+    and the model actually called. Prompt caching is unconditional in
+    deepagents; Anthropic's is a no-op on other providers, and the Bedrock /
+    Fireworks variants are only appended when their packages are installed
+    (they are not). `UnsupportedContentMiddleware` swaps input blocks the
+    model's profile explicitly rejects (an image sent to a text-only model)
+    for a text placeholder rather than letting the provider reject the call.
     """
     _profile(model)  # same guard, so a bad profile fails on either entry point
     middleware: list = []
+    if skills is not None:
+        middleware.append(skills_index_middleware(skills, sandbox=True))
     append_prompt_caching_middleware(middleware)
+    middleware.append(UnsupportedContentMiddleware())
     return middleware
+
+
+def harness_tools(model, tools: list) -> list:
+    """The caller's tools with the harness profile's description rewrites.
+
+    Copies, never mutates: the same tool objects are shared with other agents
+    of the graph. No built-in profile overrides a caller tool today, so this
+    is the identity in practice — reproduced so a profile that does is
+    followed rather than silently ignored.
+    """
+    overrides = _profile(model).tool_description_overrides
+    return list(_apply_tool_description_overrides(tools, overrides) or [])
+
+
+def bind_private_state_keys(middleware: list) -> None:
+    """Keep the stack's private state out of subagent hand-offs.
+
+    A middleware marks state fields `PrivateStateAttr` when they must neither
+    be forwarded to a subagent nor merged back from one. deepagents collects
+    those names over the finished stack and gives them to the `task`
+    middleware, so this runs last, once the stack is complete. Keys the
+    caller already declared are kept.
+    """
+    schemas = [m.state_schema for m in middleware if getattr(m, "state_schema", None)]
+    private = private_state_field_names(*schemas)
+    for m in middleware:
+        if isinstance(m, SubAgentMiddleware):
+            m.private_state_keys = m.private_state_keys | private
 
 
 def harness_system_prompt(model, system_prompt: str | SystemMessage | None):

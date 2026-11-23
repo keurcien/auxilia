@@ -41,7 +41,7 @@ class WorkspaceRealtimeService:
         workspace_id: UUID,
         user_id: UUID,
         last_event_id: str | None,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str]:
         events = WorkspaceEventStream(workspace_id, self.redis)
         cursor = last_event_id or await events.latest_id()
         yield "retry: 3000\nevent: sync\ndata: {}\n\n"

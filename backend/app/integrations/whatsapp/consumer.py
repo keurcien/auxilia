@@ -51,7 +51,7 @@ class WhatsAppDelivery(TypedDict):
     tool_discovery_mode: NotRequired[str]
 
 
-def build_whatsapp_run_consumer(record: RunDB) -> "WhatsAppRunConsumer | None":
+def build_whatsapp_run_consumer(record: RunDB) -> WhatsAppRunConsumer | None:
     delivery = record.delivery
     if not delivery or delivery.get("channel") != WHATSAPP_CHANNEL:
         return None
@@ -60,7 +60,7 @@ def build_whatsapp_run_consumer(record: RunDB) -> "WhatsAppRunConsumer | None":
         return None
     try:
         UUID(str(delivery["whatsapp_connection_id"]))
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         logger.error("WhatsApp delivery connection is invalid for run %s", record.id)
         return None
     return WhatsAppRunConsumer(record)

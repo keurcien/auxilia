@@ -19,6 +19,7 @@ from langchain.agents.middleware import (
     ModelRetryMiddleware,
     ToolCallLimitMiddleware,
 )
+from langchain.agents.structured_output import ToolStrategy
 from langchain_core.exceptions import ModelError
 from langchain_core.messages import (
     AIMessage,
@@ -45,6 +46,7 @@ from app.exceptions import (
     NotFoundError,
     PermissionDeniedError,
     SandboxUnavailableError,
+    StructuredOutputError,
 )
 from app.integrations.tracing import NoOpTracing, RunTracing, get_tracing
 from app.memories.constants import MEMORY_STATE_KEY
@@ -62,14 +64,20 @@ from app.projects.runtime import (
     resolve_project_run_context,
     upload_project_context,
 )
-from app.runtime.checkpoints import checkpoint_thread_id, get_checkpoint_state
+from app.runtime.checkpoints import (
+    RUN_METADATA_KEY,
+    checkpoint_thread_id,
+    get_checkpoint_state,
+    get_run_checkpoint_state,
+)
 from app.runtime.harness import (
     HARNESS_CONFIG,
+    bind_private_state_keys,
     harness_middleware,
     harness_system_prompt,
+    harness_tools,
     harness_trailing_middleware,
 )
-from app.runtime.hitl import address_input_requested, next_elicitation_rounds
 from app.runtime.middleware.context_footprint import ContextFootprintMiddleware
 from app.runtime.middleware.current_date import CurrentDateMiddleware
 from app.runtime.middleware.incomplete_response import IncompleteResponseMiddleware
@@ -394,6 +402,8 @@ def build_runnable(
             present_tool = present_files_tool(sandbox_backend, *artifact_context)
             tools.append(present_tool)
             general_purpose_tools.append(present_tool)
+        tools = harness_tools(model, tools)
+        general_purpose_tools = harness_tools(model, general_purpose_tools)
         general_purpose_discovery = discovery_for(model)
         harness += harness_middleware(
             model=model,
@@ -456,9 +466,12 @@ def build_runnable(
     # the request as sent; prompt caching only adds cache markers.
     middleware.append(ContextFootprintMiddleware(searchable_tools))
     if sandbox_backend is not None:
-        middleware += harness_trailing_middleware(model)
+        middleware += harness_trailing_middleware(
+            model, skills if skills_enabled else None
+        )
     else:
         append_prompt_caching_middleware(middleware)
+    bind_private_state_keys(middleware)
 
     agent = create_agent(
         model=model,
@@ -466,7 +479,14 @@ def build_runnable(
         system_prompt=system_prompt,
         checkpointer=checkpointer,
         middleware=middleware,
-        response_format=output_schema,
+        # Pinned to ToolStrategy: a raw schema lets langchain pick a strategy
+        # from the model's profile, so a dependency bump that marks a model as
+        # supporting native structured output silently switches it to the
+        # provider's json_schema path. The formatting middleware decides the
+        # strategy per provider; this only fixes the default it starts from.
+        response_format=(
+            ToolStrategy(output_schema) if output_schema is not None else None
+        ),
         state_schema=DeepAgentState,
     )
     # deepagents binds this onto every graph it builds; keep it on the sandbox
@@ -604,7 +624,7 @@ class ResolvedAgent:
         *,
         is_parent: bool = False,
         scope: MCPResolutionScope | None = None,
-    ) -> "ResolvedAgent":
+    ) -> ResolvedAgent:
         """Bind one agent's spec to a prepared toolset.
 
         Takes an already-read `AgentSpec` rather than an id: the whole graph
@@ -818,7 +838,7 @@ class Agent:
         *,
         runtime_tools: Sequence[BaseTool] = (),
         runtime_tool_interrupt_on: dict[str, bool] | None = None,
-    ) -> "Agent":
+    ) -> Agent:
         """Resolve everything a run needs from the database.
 
         A resume (a HITL approval) resolves exactly as a first run does —
@@ -1281,6 +1301,7 @@ class Agent:
         trigger: str | None,
         config_overrides: dict | None,
         output_schema: dict | None = None,
+        run_id: str | None = None,
     ):
         """Open a checkpointer scope and yield (agent, resolved_input, config).
 
@@ -1329,6 +1350,12 @@ class Agent:
             config, resolved_input = await self._resolve_config(
                 agent, checkpointer, trigger, config_overrides, resolved_input
             )
+            if run_id is not None:
+                # langgraph copies config metadata onto every checkpoint.
+                config["metadata"] = {
+                    **(config.get("metadata") or {}),
+                    RUN_METADATA_KEY: run_id,
+                }
             if self._announced_files:
                 resolved_input = _with_host_notice(
                     resolved_input,
@@ -1492,6 +1519,7 @@ class Agent:
         trigger: str | None = None,
         config_overrides: dict | None = None,
         output_schema: dict | None = None,
+        run_id: str | None = None,
     ):
         """Run one turn, yielding Agent Streaming Protocol events (`{method,
         params}` dicts — see `app/runtime/protocol/emit.py`).
@@ -1510,9 +1538,11 @@ class Agent:
             config_overrides: Optional config dict with configurable overrides.
             output_schema: Optional JSON Schema; when set, the run produces a
                 `structured_response` in its final state (read via `read_run_result`).
+            run_id: The durable run this turn executes; stamped on its
+                checkpoints so `read_run_result` reads this run's state.
         """
         async with self._setup(
-            agent_input, command, trigger, config_overrides, output_schema
+            agent_input, command, trigger, config_overrides, output_schema, run_id
         ) as (
             agent,
             stream_input,
@@ -1538,18 +1568,29 @@ class Agent:
                 transformers=[UpdatesTransformer],
             )
             emitter = ProtocolEmitter()
-            rounds = await next_elicitation_rounds(
-                agent.checkpointer,
-                config["configurable"]["thread_id"],
-                command,
-            )
             try:
                 async with run:
                     async for event in emitter.stream(run):
-                        if event["method"] == "input.requested":
-                            event = address_input_requested(event, rounds)
                         yield event
-            except (asyncio.CancelledError, GeneratorExit):
+                if output_schema is not None:
+                    # Regeneration pins the starting checkpoint; validate the completed turn.
+                    state = await agent.aget_state(
+                        {
+                            **config,
+                            "configurable": {
+                                **config["configurable"],
+                                "checkpoint_id": None,
+                            },
+                        }
+                    )
+                    if (
+                        not state.next
+                        and state.values.get("structured_response") is None
+                    ):
+                        raise StructuredOutputError(
+                            "Run ended without the required structured response"
+                        )
+            except asyncio.CancelledError, GeneratorExit:
                 # Cancellation can arrive in this generator directly or as
                 # `aclose()` when the worker is cancelled while publishing.
                 await asyncio.shield(
@@ -1619,17 +1660,23 @@ def extract_invoke_result(
     }
 
 
-async def read_run_result(workspace_id: UUID, thread_id: str) -> dict:
-    """Read a thread's final-turn result from its checkpoint (out-of-request).
+async def read_run_result(
+    workspace_id: UUID, thread_id: str, run_id: str | None = None
+) -> dict:
+    """Read a run's final-turn result from its checkpoint (out-of-request).
 
     The durable runtime streams a run to its event log rather than returning a
-    value, so the synchronous `/runs/invoke` consumer reads the answer back from
-    the LangGraph checkpoint once the run is terminal.
+    value, so the `/runs/invoke` and `/runs/stream` consumers read the answer
+    back from the LangGraph checkpoint once the run is terminal. With `run_id`
+    it is that run's last checkpoint, not the thread's: the next run on the
+    thread may already have written its input by the time this reads.
     """
+    checkpoint_id = checkpoint_thread_id(workspace_id, thread_id)
     async with get_checkpointer() as checkpointer:
-        state = await get_checkpoint_state(
-            checkpointer, checkpoint_thread_id(workspace_id, thread_id)
-        )
+        if run_id is not None:
+            state = await get_run_checkpoint_state(checkpointer, checkpoint_id, run_id)
+        else:
+            state = await get_checkpoint_state(checkpointer, checkpoint_id)
     return extract_invoke_result(state.messages, state.structured_response)
 
 

@@ -157,7 +157,7 @@ class SupportedModel(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def default_chef_from_provider(self) -> "SupportedModel":
+    def default_chef_from_provider(self) -> SupportedModel:
         if self.chef is None:
             self.chef = self.provider.capitalize()
         if self.chef_slug is None:
@@ -167,7 +167,7 @@ class SupportedModel(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def reasoning_effort_is_coherent(self) -> "SupportedModel":
+    def reasoning_effort_is_coherent(self) -> SupportedModel:
         ladder = get_args(ReasoningEffort)
         allowed = KNOWN_REASONING_EFFORT_LEVELS.get(self.model_id)
         unsupported = (
@@ -208,7 +208,7 @@ class WhitelistDocument(BaseModel):
     models: list[SupportedModel]
 
     @model_validator(mode="after")
-    def models_non_empty_and_unique(self) -> "WhitelistDocument":
+    def models_non_empty_and_unique(self) -> WhitelistDocument:
         if not self.models:
             raise ValueError("whitelist has no models")
         # model_id must be unique across providers: threads store the bare

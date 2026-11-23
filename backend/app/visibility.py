@@ -29,7 +29,7 @@ def is_resource_visible(
     visibility: ResourceVisibility,
     owner_id: UUID,
     team_ids: set[UUID],
-    user: "UserDB",
+    user: UserDB,
 ) -> bool:
     if user.role == "admin" or user.id == owner_id:
         return True

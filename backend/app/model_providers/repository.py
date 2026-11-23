@@ -1,3 +1,4 @@
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, update
@@ -263,7 +264,7 @@ class ModelProviderCatalogRepository:
     ) -> None:
         if self.workspace_id is None:
             raise RuntimeError("workspace_id is required to update provider models")
-        values = {
+        values: dict[str, Any] = {
             "runtime_model_id": runtime_model_id,
             "display_name": display_name,
             "chef": chef,

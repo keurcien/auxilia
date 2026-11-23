@@ -13,7 +13,7 @@ FastAPI backend for the auxilia project with MCP (Model Context Protocol) server
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.14+
 - Redis (via Docker Compose)
 - [uv](https://github.com/astral-sh/uv) package manager
 

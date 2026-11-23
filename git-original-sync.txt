@@ -1,5 +1,5 @@
 Upstream: https://github.com/keurcien/auxilia
-Synchronization date: 2026-11-09
+Synchronization date: 2026-11-23
 Mode: compatible forward-port (not verbatim cherry-picks)
 
 0cd8f036864febcbf20543d5570a77b8e65edf64	feat(agents): let agent editors manage subagents (#392)
@@ -41,3 +41,14 @@ dcc6f82c2833827704a76c08f921f0d5769b04b3	feat(mcp): answer MCP elicitation reque
 d9925f479bc645b85df214bc37cf56286aec35ba	Improve Slack agent search and import existing thread context (#452) [covered by dedicated agent bots and existing Slack context import; shared picker not applicable]
 4bc326b5b3d1492908a33580082bf4dd7a52d15c	fix(slack): require a mention to activate channel threads (#454) [covered by configurable require_mention_in_threads]
 ba6e9fd0f3a7c2c8f5cf58cf225f7573fbdfa299	feat(langfuse): review config and label in a dialog before publishing (#457) [compatible forward-port for workspace-scoped Langfuse clients and server-owned publisher metadata]
+7366a5aadf38204d12f9a2bf061dd073e39c4905	fix(runtime): stop thread history from hanging on the subagent description fallback (#462) [already covered by the SQL-backed subagent description lookup]
+db463d922ee7299983182818863870d3b1cb8c64	feat(runs): close idle stream sessions after a timeout (#464)
+f7eb6d54588afc97751fcaf99ea00aa9796a94ca	fix(runtime): isolate structured output formatting from work tools (#461)
+9380f4d096b9c1d36b6599d4358080aa86701b52	feat(mcp): identify the client as auxilia to MCP servers (#466) [compatible forward-port using BACKEND_VERSION]
+71eb960faf6303e92d7ab414dc453eda15f5a17e	feat(runs): stream a run's events over a single request (#469) [compatible forward-port for workspace-scoped runs and checkpoints]
+5ba709d6ce5cee7a35aba9bbc7a20305964df891	build(backend): upgrade to Python 3.14 (#471)
+64b938bbf38c0140e1321c43c170abfa59c2170c	deps(backend): upgrade web, MCP and database packages (#472) [lockfile re-resolved for fork-only dependencies]
+b861545f176444c70c4a7ac79ca7e40394a001c3	deps(backend): upgrade langchain, langgraph and deepagents (#473) [compatible forward-port keeping fork middleware, elicitation tool_call_id and memory state; upstream-only elicitation tests not added]
+d76435398abb9d2031f5729ae6f625b807507d12	deps(web): update node dependencies and fix audit advisories (#475) [version bumps applied to shared dependencies, lockfiles regenerated for the fork]
+11be441834e2c1f6851110857f953a9a3c77c74d	fix(runtime): log server errors that are turned into responses (#476) [partial: DomainError 5xx logging only; the fork's ModelRetryMiddleware already re-raises with on_failure="error"]
+0bb567f0027777221773d7c3b903ea3b9faf8539	fix(runtime): pin ToolStrategy for agent structured output (#478) [same as upstream/fix/pin-tool-strategy-for-structured-output eed0fcac]

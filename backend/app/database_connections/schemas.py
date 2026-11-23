@@ -86,7 +86,7 @@ class DatabaseConnectionResponse(SQLModel):
     desired_revision: int
     applied_revision: int
     last_applied_at: datetime | None = None
-    created_at: datetime
+    created_at: datetime | None
     updated_at: datetime
 
 

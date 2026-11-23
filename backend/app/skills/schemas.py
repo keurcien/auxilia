@@ -106,7 +106,7 @@ class SkillBundle(BaseModel):
         }
 
     @model_validator(mode="after")
-    def _consistent_and_bounded(self) -> "SkillBundle":
+    def _consistent_and_bounded(self) -> SkillBundle:
         # Case-insensitive: the bundle is exported as a zip that may land on a
         # case-insensitive filesystem.
         paths = [file.path.casefold() for file in self.files]
