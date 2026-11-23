@@ -139,6 +139,24 @@ def test_it_unwraps_through_nesting():
     assert response.json() == {"detail": "not yours"}
 
 
+def test_a_server_error_is_logged_with_its_traceback(caplog):
+    """The handler swallows the exception into a response; a 5xx must still
+    reach the logs, traceback included, or it is invisible server-side."""
+    with caplog.at_level(logging.ERROR, logger="app"):
+        _client(StructuredOutputError("no valid structured response")).get("/boom")
+
+    [record] = caplog.records
+    assert "no valid structured response" in record.getMessage()
+    assert record.exc_info is not None
+
+
+def test_a_client_error_logs_nothing(caplog):
+    with caplog.at_level(logging.ERROR, logger="app"):
+        _client(NotFoundError("no such agent")).get("/boom")
+
+    assert caplog.records == []
+
+
 def test_other_failures_in_the_group_are_logged_not_dropped(caplog):
     """The response can only carry one failure, and the domain status is the
     useful one — but a concurrent crash beside it must not vanish, which is what
