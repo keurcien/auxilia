@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.20](https://github.com/keurcien/auxilia/compare/web-v0.10.19...web-v0.10.20) (2026-11-23)
+
+
+### Dependencies
+
+* **web:** update node dependencies and fix audit advisories ([#475](https://github.com/keurcien/auxilia/issues/475)) ([d764353](https://github.com/keurcien/auxilia/commit/d76435398abb9d2031f5729ae6f625b807507d12))
+
 ## [0.10.19](https://github.com/keurcien/auxilia/compare/web-v0.10.18...web-v0.10.19) (2026-11-06)
 
 
