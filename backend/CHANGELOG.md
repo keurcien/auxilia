@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.31](https://github.com/keurcien/auxilia/compare/backend-v0.9.30...backend-v0.9.31) (2026-11-23)
+
+
+### Bug Fixes
+
+* **runtime:** pin ToolStrategy for agent structured output ([#478](https://github.com/keurcien/auxilia/issues/478)) ([0bb567f](https://github.com/keurcien/auxilia/commit/0bb567f0027777221773d7c3b903ea3b9faf8539))
+
 ## [0.9.30](https://github.com/keurcien/auxilia/compare/backend-v0.9.29...backend-v0.9.30) (2026-11-23)
 
 
