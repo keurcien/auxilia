@@ -20,9 +20,9 @@ class UUIDMixin(SQLModel):
 class TimestampMixin(SQLModel):
     """Server-side created_at / updated_at timestamps."""
 
-    # Both are server-generated and NOT NULL: `None` is only the pre-flush value,
-    # so the annotation is the type a caller reads after `flush()`.
-    created_at: datetime = Field(
+    # Server-generated and NOT NULL in the database, but `None` on a row that
+    # has not been flushed and reloaded yet — hence optional.
+    created_at: datetime | None = Field(
         default=None,
         sa_type=DateTime(timezone=True),
         sa_column_kwargs={"server_default": func.now(), "nullable": False},
