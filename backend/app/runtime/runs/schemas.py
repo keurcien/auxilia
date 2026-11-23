@@ -67,7 +67,7 @@ class RunResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_record(cls, record: RunDB) -> "RunResponse":
+    def from_record(cls, record: RunDB) -> RunResponse:
         return cls(
             id=record.id,
             thread_id=record.thread_id,

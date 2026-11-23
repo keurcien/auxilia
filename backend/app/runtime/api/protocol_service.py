@@ -188,7 +188,7 @@ class ProtocolService:
 
     async def stream_events(
         self, thread_id: str, body: EventStreamBody
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str]:
         """One protocol SSE session: replay the newest run, then follow newer
         runs as they appear, until the client disconnects or the thread has
         had no run to relay for `RUN_STREAM_IDLE_TIMEOUT_SECONDS`."""
@@ -253,7 +253,7 @@ class ProtocolService:
 
     async def stream_invoke(
         self, run: RunDB, sink: AnyFilter, output_schema: dict | None
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str]:
         """`/runs/stream`: relay one run's events, then say how it ended.
 
         The single-request counterpart of a thread session — it follows this
@@ -320,7 +320,7 @@ class ProtocolService:
 
     async def _stream_run(
         self, run: RunDB, sink: StreamFilter | AnyFilter, *, since: int | None
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str]:
         """Relay one run's stored events through the session filter.
 
         Each log entry holds one protocol event; its entry id is the client's

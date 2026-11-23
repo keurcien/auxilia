@@ -355,7 +355,7 @@ class RunService:
 
     async def stream(
         self, run_id: str, last_event_id: str = "0", *, block_ms: int = 15000
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str]:
         """Relay a run's stored events (raw log entries) from `last_event_id`
         until the terminal entry.
 

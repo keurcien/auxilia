@@ -137,7 +137,7 @@ class ProtocolEmitter:
         self._answer_id: str | None = None
         self._answer_text: dict[int, str] = {}
 
-    async def stream(self, run: AsyncIterator[dict]) -> AsyncGenerator[dict, None]:
+    async def stream(self, run: AsyncIterator[dict]) -> AsyncGenerator[dict]:
         """Yield wire events for one run, opening with the root lifecycle.
 
         Exceptions the graph raises surface here after the buffered events

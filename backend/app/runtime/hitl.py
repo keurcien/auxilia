@@ -167,7 +167,7 @@ def wire_id(checkpoint: Any, interrupt: PendingInterrupt) -> str | None:
     )
 
 
-def _scope_round(scope: "InterruptScope") -> int:
+def _scope_round(scope: InterruptScope) -> int:
     """`_round` of a located interrupt, counted where it lives — the paused
     subagent's checkpoint when a subagent asked."""
     own = (
@@ -176,7 +176,7 @@ def _scope_round(scope: "InterruptScope") -> int:
     return _round(scope.state, own) if own else _round(scope.root, scope.interrupt)
 
 
-def scope_wire_id(scope: "InterruptScope") -> str | None:
+def scope_wire_id(scope: InterruptScope) -> str | None:
     """`wire_id` of a located interrupt (see `_scope_round`)."""
     if scope.interrupt.id is None:
         return None

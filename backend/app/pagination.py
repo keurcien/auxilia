@@ -1,10 +1,5 @@
-from typing import Generic, TypeVar
-
 from fastapi import Query
 from pydantic import BaseModel
-
-
-ItemType = TypeVar("ItemType")
 
 
 class PageParams:
@@ -22,7 +17,7 @@ class PageParams:
         self.offset = offset
 
 
-class Page(BaseModel, Generic[ItemType]):
+class Page[ItemType](BaseModel):
     """Envelope returned by every paginated list endpoint."""
 
     items: list[ItemType]
@@ -33,5 +28,5 @@ class Page(BaseModel, Generic[ItemType]):
     @classmethod
     def build(
         cls, items: list[ItemType], total: int, page: PageParams
-    ) -> "Page[ItemType]":
+    ) -> Page[ItemType]:
         return cls(items=items, total=total, limit=page.limit, offset=page.offset)
