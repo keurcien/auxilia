@@ -163,6 +163,38 @@ async def test_workspace_admin_holds_admin_on_someone_elses_agent(agent_session)
     assert permission is EffectivePermission.admin
 
 
+async def test_without_the_bypass_a_workspace_admin_is_just_a_user(agent_session):
+    """Thread access: a workspace admin with no relation to the agent is denied."""
+    agent = await _add_agent(agent_session)
+
+    with pytest.raises(PermissionDeniedError):
+        await AgentService(agent_session).require_permission(
+            agent.id,
+            at_least=EffectivePermission.admin,
+            action="view this thread",
+            user_id=uuid4(),
+            user_role=WorkspaceRole.admin,
+            workspace_admin_bypass=False,
+        )
+
+
+async def test_without_the_bypass_an_agent_admin_grant_still_counts(agent_session):
+    agent = await _add_agent(agent_session)
+    user_id = uuid4()
+    await _grant(agent_session, agent.id, user_id, PermissionLevel.admin)
+
+    permission = await AgentService(agent_session).require_permission(
+        agent.id,
+        at_least=EffectivePermission.admin,
+        action="view this thread",
+        user_id=user_id,
+        user_role=WorkspaceRole.admin,
+        workspace_admin_bypass=False,
+    )
+
+    assert permission is EffectivePermission.admin
+
+
 async def test_a_grant_is_checked_against_the_level_asked_for(agent_session):
     agent = await _add_agent(agent_session)
     user_id = uuid4()

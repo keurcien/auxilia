@@ -30,6 +30,7 @@ def require_agent_permission(
     *,
     action: str,
     include_archived: bool = False,
+    workspace_admin_bypass: bool = True,
 ) -> Callable:
     """A dependency requiring `at_least` on the `agent_id` in the path.
 
@@ -50,6 +51,7 @@ def require_agent_permission(
             user_role=current_user.role,
             user_team_id=current_user.team_id,
             include_archived=include_archived,
+            workspace_admin_bypass=workspace_admin_bypass,
         )
 
     return dependency
