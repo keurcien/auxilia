@@ -21,6 +21,7 @@ from app.mcp.servers.models import (
     is_personal_auth,
     stores_user_credentials,
 )
+from app.workspaces.models import WorkspaceRole
 from tests.conftest import TEST_WORKSPACE_ID
 
 
@@ -594,10 +595,13 @@ async def test_list_agents_for_server_projects_the_delete_guard_shape(
         instructions="x",
     )
     mock_repo.list_agents_for_server = AsyncMock(return_value=[agent])
+    admin = SimpleNamespace(id=uuid4(), role=WorkspaceRole.admin, team_id=None)
 
-    result = await service.list_agents_for_server(server_id)
+    result = await service.list_agents_for_server(server_id, admin)
 
-    mock_repo.list_agents_for_server.assert_awaited_once_with(server_id)
+    mock_repo.list_agents_for_server.assert_awaited_once_with(
+        server_id, visible_to=None
+    )
     assert [(r.id, r.name, r.emoji, r.color) for r in result] == [
         (agent.id, "Docs Researcher", "📚", "#0984E3")
     ]

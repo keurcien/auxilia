@@ -32,6 +32,7 @@ from app.mcp.servers.schemas import MCPServerAgentResponse
 from app.realtime.schemas import WorkspaceEventKind
 from app.realtime.service import stage_workspace_event
 from app.service import BaseService
+from app.users.models import UserDB
 from app.visibility import (
     ResourceVisibility,
     audience_contains,
@@ -345,11 +346,17 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
     # through `MCPServerService` (#369).
 
     async def list_agents_for_server(
-        self, server_id: UUID
+        self, server_id: UUID, user: UserDB
     ) -> list[MCPServerAgentResponse]:
-        """Agents currently bound to the server (delete-guard dialog)."""
+        """Agents bound to the server: the server page's "used by" list and,
+        for an admin (who sees them all), the delete-guard dialog."""
         await self._ensure_server(server_id)
-        agents = await self.repository.list_agents_for_server(server_id)
+        agents = await self.repository.list_agents_for_server(
+            server_id,
+            visible_to=None
+            if user.role == WorkspaceRole.admin
+            else (user.id, user.team_id),
+        )
         return [
             MCPServerAgentResponse(
                 id=agent.id,

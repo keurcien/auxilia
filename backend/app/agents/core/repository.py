@@ -3,10 +3,10 @@ from collections.abc import Iterable
 from typing import NamedTuple
 from uuid import UUID
 
-from sqlalchemy import delete, or_, update
+from sqlalchemy import and_, delete, exists, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
-from sqlmodel import SQLModel, select
+from sqlmodel import SQLModel, col, select
 
 from app.agents.models import (
     AgentDB,
@@ -25,6 +25,31 @@ from app.repository import BaseRepository
 from app.sandbox.models import SandboxDB
 from app.users.models import WorkspaceRole
 from app.visibility import ResourceVisibility
+
+
+def visible_agent_clause(user_id: UUID, team_id: UUID | None):
+    """Agents a non-admin can see: owned, workspace-wide, granted, or shared
+    with their team. Admins see every agent, so callers skip it for them."""
+    clause = or_(
+        col(AgentDB.owner_id) == user_id,
+        col(AgentDB.visibility) == ResourceVisibility.workspace,
+        exists().where(
+            col(AgentUserPermissionDB.agent_id) == col(AgentDB.id),
+            col(AgentUserPermissionDB.user_id) == user_id,
+        ),
+    )
+    if team_id is not None:
+        clause = or_(
+            clause,
+            and_(
+                col(AgentDB.visibility) == ResourceVisibility.teams,
+                exists().where(
+                    col(AgentTeamDB.agent_id) == col(AgentDB.id),
+                    col(AgentTeamDB.team_id) == team_id,
+                ),
+            ),
+        )
+    return clause
 
 
 class AgentAccess(NamedTuple):

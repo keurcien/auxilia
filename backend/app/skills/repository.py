@@ -3,11 +3,8 @@ from uuid import UUID
 
 from sqlalchemy import (
     Integer,
-    and_,
     delete,
-    exists,
     func,
-    or_,
     select as sa_select,
     update,
 )
@@ -16,7 +13,8 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import FunctionElement
 from sqlmodel import col, select
 
-from app.agents.models import AgentDB, AgentTeamDB, AgentUserPermissionDB
+from app.agents.core.repository import visible_agent_clause
+from app.agents.models import AgentDB
 from app.repository import BaseRepository
 from app.skills.models import (
     AgentSkillDB,
@@ -26,7 +24,6 @@ from app.skills.models import (
     SkillTeamDB,
 )
 from app.skills.schemas import SCRIPTS_DIR
-from app.visibility import ResourceVisibility
 
 
 class json_array_length(FunctionElement):  # SQL function, named like one
@@ -57,29 +54,6 @@ class json_script_count(FunctionElement):  # SQL function, named like one
 
 
 _SCRIPTS_PREFIX = f"{SCRIPTS_DIR}/"
-
-
-def _visible_agent_clause(user_id: UUID, team_id: UUID | None):
-    clause = or_(
-        col(AgentDB.owner_id) == user_id,
-        col(AgentDB.visibility) == ResourceVisibility.workspace,
-        exists().where(
-            col(AgentUserPermissionDB.agent_id) == col(AgentDB.id),
-            col(AgentUserPermissionDB.user_id) == user_id,
-        ),
-    )
-    if team_id is not None:
-        clause = or_(
-            clause,
-            and_(
-                col(AgentDB.visibility) == ResourceVisibility.teams,
-                exists().where(
-                    col(AgentTeamDB.agent_id) == col(AgentDB.id),
-                    col(AgentTeamDB.team_id) == team_id,
-                ),
-            ),
-        )
-    return clause
 
 
 @compiles(json_script_count)
@@ -298,7 +272,7 @@ class SkillRepository(BaseRepository[SkillDB]):
             .order_by(col(AgentDB.name), col(AgentDB.id))
         )
         if not is_admin:
-            stmt = stmt.where(_visible_agent_clause(user_id, team_id))
+            stmt = stmt.where(visible_agent_clause(user_id, team_id))
         return (await self.db.execute(stmt)).all()
 
     async def list_agents_using(
@@ -324,7 +298,7 @@ class SkillRepository(BaseRepository[SkillDB]):
             .order_by(col(AgentDB.name), col(AgentDB.id))
         )
         if not is_admin:
-            stmt = stmt.where(_visible_agent_clause(user_id, team_id))
+            stmt = stmt.where(visible_agent_clause(user_id, team_id))
         return (await self.db.execute(stmt)).all()
 
     async def list_bound_agents(self, skill_id: UUID) -> list[AgentDB]:

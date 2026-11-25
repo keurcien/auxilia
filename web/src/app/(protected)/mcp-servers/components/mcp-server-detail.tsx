@@ -36,6 +36,7 @@ import type { ResourceVisibility } from "@/types/visibility";
 import { ConnectedUsersPanel } from "./connected-users-panel";
 import { ConnectionTestDialog } from "./connection-test-dialog";
 import { MCPServerToolsPanel } from "./mcp-server-tools-panel";
+import { MCPServerUsedBy } from "./mcp-server-used-by";
 import { MCPServerUrlField } from "./mcp-server-url-field";
 import { OAuthCallbackUrl } from "./oauth-callback-url";
 import { OAuthConnectionFollowUpDialog } from "./oauth-connection-follow-up-dialog";
@@ -1487,6 +1488,7 @@ export default function MCPServerDetail({
 							</div>
 						</div>
 					)}
+					{!editing && <MCPServerUsedBy serverId={server.id} />}
 					</div>
 					{isMobile && mobileTab === "more" && (
 						<div className="flex min-w-0 flex-col pt-5">

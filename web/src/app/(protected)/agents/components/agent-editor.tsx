@@ -17,6 +17,7 @@ import { Agent, ToolDiscoveryMode } from "@/types/agents";
 import AgentToolList from "../[id]/components/agent-tool-list";
 import AgentSubagentList from "../[id]/components/agent-subagent-list";
 import AgentSkillList from "../[id]/components/agent-skill-list";
+import AgentTriggersUsedBy from "../[id]/components/agent-triggers-used-by";
 import AgentSideChannelCard from "../[id]/components/agent-side-channel-card";
 import { GroupPicker } from "@/components/ui/group-picker";
 import { VisibilityPicker } from "@/components/ui/visibility-picker";
@@ -749,6 +750,7 @@ export default function AgentEditor({
 					</div>
 				)}
 			</div>
+			{agent && <AgentTriggersUsedBy agentId={agent.id} />}
 		</div>
 	);
 

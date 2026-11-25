@@ -189,7 +189,8 @@ class MCPCatalogSyncResponse(SQLModel):
 
 
 class MCPServerAgentResponse(SQLModel):
-    """An agent still bound to an MCP server — shown in the delete-guard dialog."""
+    """An agent bound to an MCP server: the server page's "used by" list and
+    the delete-guard dialog."""
 
     id: UUID
     name: str

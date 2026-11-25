@@ -90,7 +90,8 @@ export async function resetMcpServerConnections(serverId: string): Promise<void>
 	await api.post(`/mcp-servers/${serverId}/reset`);
 }
 
-/** Agents still bound to the server — the delete-guard dialog lists them. */
+/** Agents bound to the server that the caller can see (all of them for an
+ * admin): the server page's "Used by" block and the delete-guard dialog. */
 export async function listMcpServerAgents(serverId: string): Promise<BoundAgent[]> {
 	const response = await api.get<BoundAgent[]>(`/mcp-servers/${serverId}/agents`);
 	return response.data;

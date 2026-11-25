@@ -228,15 +228,14 @@ async def get_oauth_secret_hint(
 @router.get(
     "/{server_id}/agents",
     response_model=list[MCPServerAgentResponse],
-    # In this order: the admin gate first, so a non-admin cannot tell an
-    # existing server id from a missing one by 404 vs 403.
-    dependencies=[Depends(require_admin), Depends(get_mcp_server_dependency)],
+    dependencies=[Depends(get_mcp_server_dependency)],
 )
 async def list_mcp_server_agents(
     server_id: UUID,
+    current_user: UserDB = Depends(get_current_user),
     bindings: AgentMCPServerService = Depends(get_agent_mcp_server_service),
 ) -> list[MCPServerAgentResponse]:
-    return await bindings.list_agents_for_server(server_id)
+    return await bindings.list_agents_for_server(server_id, current_user)
 
 
 @router.delete("/{server_id}", status_code=204)

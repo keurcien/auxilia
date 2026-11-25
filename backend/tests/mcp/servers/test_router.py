@@ -35,17 +35,18 @@ def binding_service():
     app.dependency_overrides.pop(get_agent_mcp_server_service, None)
 
 
-def test_list_server_agents_requires_admin_before_looking_the_server_up(
+def test_list_server_agents_is_open_to_members_who_see_the_server(
     client, mcp_server_service, binding_service, current_user
 ):
-    """A non-admin gets 403 whether or not the server exists — the lookup
-    runs after the gate, so ids cannot be probed by 404 vs 403."""
-    mcp_server_service.get_visible.side_effect = NotFoundError("MCP server not found")
+    server_id = uuid4()
 
-    response = client.get(f"/mcp-servers/{uuid4()}/agents")
+    response = client.get(f"/mcp-servers/{server_id}/agents")
 
-    assert response.status_code == 403
-    mcp_server_service.get_visible.assert_not_called()
+    assert response.status_code == 200
+    mcp_server_service.get_visible.assert_awaited_once_with(server_id, current_user)
+    binding_service.list_agents_for_server.assert_awaited_once_with(
+        server_id, current_user
+    )
 
 
 def test_list_server_agents(client, mcp_server_service, binding_service, admin_user):
@@ -62,7 +63,9 @@ def test_list_server_agents(client, mcp_server_service, binding_service, admin_u
     assert agent["id"] == str(agent_id)
     assert agent["name"] == "Docs Researcher"
     mcp_server_service.get_visible.assert_awaited_once_with(server_id, admin_user)
-    binding_service.list_agents_for_server.assert_awaited_once_with(server_id)
+    binding_service.list_agents_for_server.assert_awaited_once_with(
+        server_id, admin_user
+    )
 
 
 def test_list_server_agents_unknown_server_is_404(
