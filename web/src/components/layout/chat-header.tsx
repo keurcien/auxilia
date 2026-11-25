@@ -211,7 +211,7 @@ function ModelCostPill() {
 		<span
 			tabIndex={0}
 			aria-label={showCost ? `Model ${name}, cost ${costLabel}` : `Model ${name}`}
-			className={`hidden h-[30px] shrink-0 items-center gap-2 rounded-full border border-border bg-white text-[13px] font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 md:flex dark:bg-white/5 ${
+			className={`hidden h-[30px] shrink-0 cursor-pointer items-center gap-2 rounded-full border border-border bg-white text-[13px] font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 md:flex dark:bg-white/5 ${
 				showCost ? "pl-2 pr-3" : "w-[30px] justify-center"
 			}`}
 		>
