@@ -5,6 +5,7 @@ import {
 	Bell,
 	BellOff,
 	Brain,
+	Cpu,
 	Folder,
 	FolderInput,
 	LoaderCircle,
@@ -18,6 +19,7 @@ import {
 	useEffect,
 	useMemo,
 	useState,
+	type ReactElement,
 	type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -60,6 +62,47 @@ import type { ThreadNotifications } from "@/hooks/use-thread-notifications";
 import { useEdgeSwipe } from "@/hooks/use-edge-swipe";
 import { Switch } from "@/components/ui/switch";
 import type { WebPushState } from "@/types/web-push";
+
+/** Round, icon-only header action; `active` tints it petrol. */
+export function headerIconButtonClass(active = false): string {
+	return `relative flex size-[30px] shrink-0 cursor-pointer items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+		active
+			? "border-petrol/25 bg-petrol/8 text-petrol hover:bg-petrol/12 dark:border-panel-terminal/25 dark:bg-panel-terminal/10 dark:text-panel-terminal"
+			: "border-border bg-card text-meta hover:bg-hover hover:text-foreground dark:bg-white/5"
+	}`;
+}
+
+/**
+ * The label of an icon-only header action: a bold name, plus an optional
+ * line saying what it does or why it is unavailable.
+ */
+export function HeaderTip({
+	label,
+	hint,
+	children,
+}: {
+	label: ReactNode;
+	hint?: ReactNode;
+	children: ReactElement;
+}) {
+	return (
+		<Tooltip delayDuration={120}>
+			<TooltipTrigger asChild>{children}</TooltipTrigger>
+			<TooltipContent
+				side="bottom"
+				sideOffset={8}
+				className="max-w-[260px] rounded-[9px] px-3 py-2 text-left shadow-[0_10px_30px_rgba(12,20,17,0.22)]"
+			>
+				<span className="block text-[12px] font-semibold leading-4">{label}</span>
+				{hint && (
+					<span className="mt-0.5 block text-[11px] leading-[15px] text-background/70">
+						{hint}
+					</span>
+				)}
+			</TooltipContent>
+		</Tooltip>
+	);
+}
 
 /** Pill amount: two decimals, or less than one cent. */
 export function formatPillCost(amount: string): string {
@@ -163,14 +206,20 @@ function ModelCostPill() {
 	if (!modelId) return null;
 
 	const showCost = cost !== null;
+	const name = model?.name ?? modelId;
 	const pill = (
 		<span
-			title={showCost ? undefined : `Model: ${modelId}`}
-			tabIndex={showCost ? 0 : undefined}
-			className="hidden h-[30px] min-w-0 max-w-72 items-center gap-2 rounded-full border border-border bg-white px-3 text-[13px] font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 md:flex dark:bg-white/5"
+			tabIndex={0}
+			aria-label={showCost ? `Model ${name}, cost ${costLabel}` : `Model ${name}`}
+			className={`hidden h-[30px] shrink-0 items-center gap-2 rounded-full border border-border bg-white text-[13px] font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 md:flex dark:bg-white/5 ${
+				showCost ? "pl-2 pr-3" : "w-[30px] justify-center"
+			}`}
 		>
-			{model?.chefSlug && <ModelSelectorLogo provider={model.chefSlug} />}
-			<span className="truncate">{model?.name ?? modelId}</span>
+			{model?.chefSlug ? (
+				<ModelSelectorLogo provider={model.chefSlug} />
+			) : (
+				<Cpu className="size-3.5 text-meta" />
+			)}
 			{showCost && (
 				<span className="flex-none border-l border-border pl-2 text-right tabular-nums text-subtle">
 					{costLabel}
@@ -182,11 +231,17 @@ function ModelCostPill() {
 		<HoverCard openDelay={150} closeDelay={100}>
 			<HoverCardTrigger asChild>{pill}</HoverCardTrigger>
 			<HoverCardContent align="end" className="w-80">
+				<div className="mb-3 flex items-center gap-2 border-b border-border pb-2.5 text-[12.5px] font-semibold text-foreground">
+					{model?.chefSlug && <ModelSelectorLogo provider={model.chefSlug} />}
+					<span className="min-w-0 truncate">{name}</span>
+				</div>
 				<CostBreakdown cost={cost} />
 			</HoverCardContent>
 		</HoverCard>
 	) : (
-		pill
+		<HeaderTip label={name} hint="Model used in this conversation">
+			{pill}
+		</HeaderTip>
 	);
 }
 
@@ -330,22 +385,19 @@ export function ChatMoveToProjectButton({ onMove }: { onMove: () => void }) {
 	const inProject = useChatHeaderStore((state) => state.project !== null);
 	const label = inProject ? "Move to another project" : "Move to project";
 	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<button
-					type="button"
-					aria-label={label}
-					onClick={onMove}
-					className="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[11.5px] font-semibold text-meta transition-colors hover:bg-hover hover:text-foreground dark:bg-white/5"
-				>
-					<FolderInput className="size-3.5 shrink-0" />
-					<span className="hidden xl:inline">Move</span>
-				</button>
-			</TooltipTrigger>
-			<TooltipContent side="bottom" sideOffset={7}>
-				{label}
-			</TooltipContent>
-		</Tooltip>
+		<HeaderTip
+			label="Move"
+			hint={inProject ? "File this conversation in another project" : "File this conversation in a project"}
+		>
+			<button
+				type="button"
+				aria-label={label}
+				onClick={onMove}
+				className={headerIconButtonClass()}
+			>
+				<FolderInput className="size-3.5" />
+			</button>
+		</HeaderTip>
 	);
 }
 
@@ -518,49 +570,40 @@ export function ChatMemoryToggle({
 					: "border-border bg-card text-meta dark:bg-white/5"
 			}`}
 		>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<button
-						type="button"
-						aria-label={label}
-						aria-pressed={enabled}
-						disabled={disabled || saving}
-						onClick={() => {
-							onChange(!enabled);
-						}}
-						className="flex h-full cursor-pointer items-center gap-1.5 px-2.5 transition-colors hover:bg-black/5 hover:text-foreground disabled:cursor-default disabled:opacity-45 dark:hover:bg-white/5"
-					>
-						{saving ? (
-							<LoaderCircle className="size-3.5 animate-spin" />
-						) : (
-							<Brain className="size-3.5" />
-						)}
-						<span className="hidden lg:inline">Memories</span>
-						<span
-							className={`hidden size-1.5 rounded-full lg:block ${
-								enabled ? "bg-current" : "bg-meta/50"
-							}`}
-						/>
-					</button>
-				</TooltipTrigger>
-				<TooltipContent side="bottom" sideOffset={7}>
-					{label}
-				</TooltipContent>
-			</Tooltip>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<Link
-						href="/settings?tab=profile&section=memories"
-						aria-label="Open memory settings"
-						className="flex h-full w-6 items-center justify-center border-l border-current/15 opacity-65 transition-colors hover:bg-black/5 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none dark:hover:bg-white/5"
-					>
-						<Settings2 className="size-3" />
-					</Link>
-				</TooltipTrigger>
-				<TooltipContent side="bottom" sideOffset={7}>
-					Open memory settings
-				</TooltipContent>
-			</Tooltip>
+			<HeaderTip
+				label={enabled ? "Memories on" : "Memories off"}
+				hint={
+					enabled
+						? "The agent can recall and save memories in this conversation"
+						: "The agent neither recalls nor saves memories here"
+				}
+			>
+				<button
+					type="button"
+					aria-label={label}
+					aria-pressed={enabled}
+					disabled={disabled || saving}
+					onClick={() => {
+						onChange(!enabled);
+					}}
+					className="flex h-full w-[30px] cursor-pointer items-center justify-center transition-colors hover:bg-black/5 hover:text-foreground disabled:cursor-default disabled:opacity-45 dark:hover:bg-white/5"
+				>
+					{saving ? (
+						<LoaderCircle className="size-3.5 animate-spin" />
+					) : (
+						<Brain className="size-3.5" />
+					)}
+				</button>
+			</HeaderTip>
+			<HeaderTip label="Memory settings" hint="Review and manage what the agent remembers">
+				<Link
+					href="/settings?tab=profile&section=memories"
+					aria-label="Open memory settings"
+					className="flex h-full w-6 items-center justify-center border-l border-current/15 opacity-65 transition-colors hover:bg-black/5 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none dark:hover:bg-white/5"
+				>
+					<Settings2 className="size-3" />
+				</Link>
+			</HeaderTip>
 		</div>
 	);
 }
@@ -631,52 +674,36 @@ export function ChatNotificationsToggle({
 					: "border-border bg-card text-meta dark:bg-white/5"
 			}`}
 		>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<button
-						type="button"
-						role="switch"
-						aria-label="Notifications for this conversation"
-						aria-checked={enabled}
-						disabled={saving}
-						onClick={() => {
-							void setEnabled(!enabled);
-						}}
-						className="flex h-full cursor-pointer items-center gap-1.5 px-2.5 transition-colors hover:bg-black/5 hover:text-foreground disabled:cursor-wait disabled:opacity-45 dark:hover:bg-white/5"
-					>
-						{saving ? (
-							<LoaderCircle className="size-3.5 animate-spin" />
-						) : enabled ? (
-							<Bell className="size-3.5" />
-						) : (
-							<BellOff className="size-3.5" />
-						)}
-						<span className="hidden xl:inline">Notifications</span>
-						<span
-							className={`hidden size-1.5 rounded-full xl:block ${
-								enabled ? "bg-current" : "bg-meta/50"
-							}`}
-						/>
-					</button>
-				</TooltipTrigger>
-				<TooltipContent side="bottom" sideOffset={7}>
-					{label}
-				</TooltipContent>
-			</Tooltip>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<Link
-						href="/settings?tab=profile&section=preferences"
-						aria-label="Default for new conversations"
-						className="flex h-full w-6 items-center justify-center border-l border-current/15 opacity-65 transition-colors hover:bg-black/5 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none dark:hover:bg-white/5"
-					>
-						<Settings2 className="size-3" />
-					</Link>
-				</TooltipTrigger>
-				<TooltipContent side="bottom" sideOffset={7}>
-					Default for new conversations
-				</TooltipContent>
-			</Tooltip>
+			<HeaderTip label={enabled ? "Notifications on" : "Notifications off"} hint={label}>
+				<button
+					type="button"
+					role="switch"
+					aria-label="Notifications for this conversation"
+					aria-checked={enabled}
+					disabled={saving}
+					onClick={() => {
+						void setEnabled(!enabled);
+					}}
+					className="flex h-full w-[30px] cursor-pointer items-center justify-center transition-colors hover:bg-black/5 hover:text-foreground disabled:cursor-wait disabled:opacity-45 dark:hover:bg-white/5"
+				>
+					{saving ? (
+						<LoaderCircle className="size-3.5 animate-spin" />
+					) : enabled ? (
+						<Bell className="size-3.5" />
+					) : (
+						<BellOff className="size-3.5" />
+					)}
+				</button>
+			</HeaderTip>
+			<HeaderTip label="Notification settings" hint="Default for new conversations">
+				<Link
+					href="/settings?tab=profile&section=preferences"
+					aria-label="Default for new conversations"
+					className="flex h-full w-6 items-center justify-center border-l border-current/15 opacity-65 transition-colors hover:bg-black/5 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none dark:hover:bg-white/5"
+				>
+					<Settings2 className="size-3" />
+				</Link>
+			</HeaderTip>
 		</div>
 	);
 }

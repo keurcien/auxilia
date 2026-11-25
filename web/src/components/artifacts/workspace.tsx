@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/app/(protected)/skills/lib/skill-form";
 import { relativeTime } from "@/app/(protected)/skills/lib/relative-time";
-import { ChatHeaderActions } from "@/components/layout/chat-header";
+import { ChatHeaderActions, HeaderTip } from "@/components/layout/chat-header";
 import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
 import { McpAppWidget } from "@/app/(protected)/agents/[id]/chat/components/mcp-app-widget";
 import type { DisplayedApp } from "@/app/(protected)/agents/[id]/chat/components/mcp-app-widget";
@@ -788,23 +788,30 @@ export function ArtifactWorkspace({
                   Retry loading artifacts
                 </Button>
               ) : (
-                <button
-                  type="button"
-                  aria-pressed={listOpen && !currentKey}
-                  onClick={() => {
-                    const showing = listOpen && !currentKey;
-                    // An open list is the user's pick too: no auto-open over it.
-                    userPicked.current = !showing;
-                    setSelected(undefined);
-                    setOpenAppId(undefined);
-                    setListOpen(!showing);
-                  }}
-                  className="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-full border border-transparent bg-petrol-chip px-3 text-[12.5px] font-semibold text-petrol hover:bg-petrol-tint aria-pressed:ring-1 aria-pressed:ring-petrol/40 dark:border-panel-terminal/25 dark:bg-panel-terminal/10 dark:text-panel-terminal dark:hover:bg-panel-terminal/15"
+                <HeaderTip
+                  label="Artifacts"
+                  hint={`${entries.length} ${entries.length === 1 ? "artifact" : "artifacts"} in this thread`}
                 >
-                  <FileText className="size-3.5" />
-                  Artifacts
-                  <span className="font-mono text-[11px]">{entries.length}</span>
-                </button>
+                  <button
+                    type="button"
+                    aria-label={`Artifacts (${entries.length})`}
+                    aria-pressed={listOpen && !currentKey}
+                    onClick={() => {
+                      const showing = listOpen && !currentKey;
+                      // An open list is the user's pick too: no auto-open over it.
+                      userPicked.current = !showing;
+                      setSelected(undefined);
+                      setOpenAppId(undefined);
+                      setListOpen(!showing);
+                    }}
+                    className="relative flex size-[30px] cursor-pointer items-center justify-center rounded-full border border-transparent bg-petrol-chip text-petrol hover:bg-petrol-tint aria-pressed:ring-1 aria-pressed:ring-petrol/40 dark:border-panel-terminal/25 dark:bg-panel-terminal/10 dark:text-panel-terminal dark:hover:bg-panel-terminal/15"
+                  >
+                    <FileText className="size-3.5" />
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-petrol px-1 font-mono text-[9.5px] font-semibold leading-none text-white ring-2 ring-background dark:bg-panel-terminal dark:text-ink">
+                      {entries.length}
+                    </span>
+                  </button>
+                </HeaderTip>
               )}
             </ChatHeaderActions>
           )}

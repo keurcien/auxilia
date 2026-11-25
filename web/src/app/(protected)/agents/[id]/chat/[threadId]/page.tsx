@@ -54,14 +54,11 @@ import {
   ChatMobileProjectRow,
   ChatMoveToProjectButton,
   ChatNotificationsToggle,
+  HeaderTip,
+  headerIconButtonClass,
   useChatHeaderProject,
 } from "@/components/layout/chat-header";
 import { ThreadPlacementDialog } from "@/components/layout/app-sidebar/thread-placement-dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { useThreadNotifications } from "@/hooks/use-thread-notifications";
 
@@ -708,77 +705,61 @@ const ChatPage = () => {
     >
       {meta.status === "ready" && thread && (
         <ChatHeaderLeadingActions>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <button
-                  type="button"
-                  aria-label={
-                    completed ? "Reopen conversation" : "Complete conversation"
-                  }
-                  aria-pressed={completed}
-                  disabled={completionActionDisabled || completionSaving}
-                  onClick={() => {
-                    void updateCompletion(!completed);
-                  }}
-                  className={`flex h-[30px] cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
-                    completed
-                      ? "border-petrol/25 bg-petrol/8 text-petrol hover:bg-petrol/12 dark:border-panel-terminal/25 dark:bg-panel-terminal/10 dark:text-panel-terminal"
-                      : "border-border bg-card text-meta hover:bg-hover hover:text-foreground dark:bg-white/5"
-                  }`}
-                >
-                  {completionSaving ? (
-                    <LoaderCircle className="size-3.5 animate-spin" />
-                  ) : completed ? (
-                    <Undo2 className="size-3.5" />
-                  ) : (
-                    <CircleCheck className="size-3.5" />
-                  )}
-                  <span className="hidden xl:inline">
-                    {completed ? "Reopen" : "Complete"}
-                  </span>
-                </button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={7}>
-              {completionTooltip}
-            </TooltipContent>
-          </Tooltip>
+          <HeaderTip
+            label={completed ? "Reopen" : "Complete"}
+            hint={completionTooltip}
+          >
+            <span className="inline-flex">
+              <button
+                type="button"
+                aria-label={
+                  completed ? "Reopen conversation" : "Complete conversation"
+                }
+                aria-pressed={completed}
+                disabled={completionActionDisabled || completionSaving}
+                onClick={() => {
+                  void updateCompletion(!completed);
+                }}
+                className={headerIconButtonClass(completed)}
+              >
+                {completionSaving ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : completed ? (
+                  <Undo2 className="size-3.5" />
+                ) : (
+                  <CircleCheck className="size-3.5" />
+                )}
+              </button>
+            </span>
+          </HeaderTip>
           {!completed && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={isUnread ? "Mark as read" : "Mark as unread"}
-                  aria-pressed={isUnread}
-                  disabled={readSaving}
-                  onClick={() => {
-                    void updateReadState(!isUnread);
-                  }}
-                  className={`flex h-[30px] cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-50 ${
-                    isUnread
-                      ? "border-petrol/25 bg-petrol/8 text-petrol hover:bg-petrol/12 dark:border-panel-terminal/25 dark:bg-panel-terminal/10 dark:text-panel-terminal"
-                      : "border-border bg-card text-meta hover:bg-hover hover:text-foreground dark:bg-white/5"
-                  }`}
-                >
-                  {readSaving ? (
-                    <LoaderCircle className="size-3.5 animate-spin" />
-                  ) : isUnread ? (
-                    <MailOpen className="size-3.5" />
-                  ) : (
-                    <Mail className="size-3.5" />
-                  )}
-                  <span className="hidden xl:inline">
-                    {isUnread ? "Mark read" : "Mark unread"}
-                  </span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={7}>
-                {isUnread
+            <HeaderTip
+              label={isUnread ? "Mark read" : "Mark unread"}
+              hint={
+                isUnread
                   ? "Mark conversation as read"
-                  : "Mark conversation as unread"}
-              </TooltipContent>
-            </Tooltip>
+                  : "Mark conversation as unread"
+              }
+            >
+              <button
+                type="button"
+                aria-label={isUnread ? "Mark as read" : "Mark as unread"}
+                aria-pressed={isUnread}
+                disabled={readSaving}
+                onClick={() => {
+                  void updateReadState(!isUnread);
+                }}
+                className={`${headerIconButtonClass(isUnread)} disabled:cursor-wait`}
+              >
+                {readSaving ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : isUnread ? (
+                  <MailOpen className="size-3.5" />
+                ) : (
+                  <Mail className="size-3.5" />
+                )}
+              </button>
+            </HeaderTip>
           )}
           {meta.viewerRole === null && (
             <ChatNotificationsToggle notifications={notifications} />

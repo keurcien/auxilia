@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ChatHeaderActions } from "@/components/layout/chat-header";
+import { ChatHeaderActions, HeaderTip } from "@/components/layout/chat-header";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
 import {
 	Dialog,
@@ -161,17 +161,28 @@ export function ShareConversation({
 				</span>
 			</button>
 		) : (
-			<button
-				type="button"
-				disabled={disabled}
-				onClick={() => {
-					setOpen(true);
-				}}
-				className="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-full bg-petrol-chip px-3 text-[12.5px] font-semibold text-petrol transition-colors hover:bg-petrol-tint disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/10 dark:text-panel-terminal dark:hover:bg-white/15"
+			<HeaderTip
+				label="Share"
+				hint={
+					disabled
+						? "Available once the conversation has messages and the agent is idle"
+						: "Publish a read-only snapshot with a private link"
+				}
 			>
-				<Share2 className="size-3.5" />
-				Share
-			</button>
+				<span className="inline-flex">
+					<button
+						type="button"
+						aria-label="Share conversation"
+						disabled={disabled}
+						onClick={() => {
+							setOpen(true);
+						}}
+						className="flex size-[30px] cursor-pointer items-center justify-center rounded-full bg-petrol-chip text-petrol transition-colors hover:bg-petrol-tint disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/10 dark:text-panel-terminal dark:hover:bg-white/15"
+					>
+						<Share2 className="size-3.5" />
+					</button>
+				</span>
+			</HeaderTip>
 		);
 
 	return (
