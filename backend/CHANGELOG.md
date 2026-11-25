@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.125](https://github.com/jr-k/auxilia/compare/backend-v0.11.124...backend-v0.11.125) (2026-11-25)
+
+
+### Bug Fixes
+
+* **mcp:** name the Google Calendar and Google Slides catalog entries ([#346](https://github.com/jr-k/auxilia/issues/346)) ([6100d7f](https://github.com/jr-k/auxilia/commit/6100d7f56f96eff19e899a6136ef631cb1b9eb09))
+
 ## [0.11.124](https://github.com/jr-k/auxilia/compare/backend-v0.11.123...backend-v0.11.124) (2026-11-25)
 
 
