@@ -247,7 +247,7 @@ servers:
       Searches Bryntum documentation and examples for Gantt, Scheduler,
       Calendar, and Grid components.
 
-  - name: "Calendar"
+  - name: "Google Calendar"
     url: "https://calendarmcp.googleapis.com/mcp/v1"
     auth_type: oauth2
     icon_url: "https://pub-fee562950db945e0af49322d187f2a02.r2.dev/assets/icons/calendar.png"
@@ -1856,7 +1856,7 @@ servers:
       Slack; combine them for comprehensive integrations that grasp your team's
       context and history.
 
-  - name: "Slides"
+  - name: "Google Slides"
     url: "https://slidesmcp.googleapis.com/mcp/v1"
     auth_type: oauth2
     icon_url: "https://pub-fee562950db945e0af49322d187f2a02.r2.dev/assets/icons/slides.png"
