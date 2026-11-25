@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.168](https://github.com/jr-k/auxilia/compare/web-v0.12.167...web-v0.12.168) (2026-11-25)
+
+
+### Bug Fixes
+
+* **threads:** upload large text attachments and show why an attachment fails ([#353](https://github.com/jr-k/auxilia/issues/353)) ([2955304](https://github.com/jr-k/auxilia/commit/2955304f8355b87599496b374df75b07943540d1))
+
 ## [0.12.167](https://github.com/jr-k/auxilia/compare/web-v0.12.166...web-v0.12.167) (2026-11-25)
 
 
