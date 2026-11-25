@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import MCPServerTable from "@/app/(protected)/mcp-servers/components/mcp-server-table";
+import {
+	CredentialScopeFilterDropdown,
+	parseCredentialScopeFilter,
+} from "@/app/(protected)/mcp-servers/components/credential-scope-filter";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { ResourceScopeFilterDropdown } from "@/components/ui/resource-scope-filter";
 import { ViewToggle } from "@/components/ui/view-toggle";
@@ -27,6 +31,11 @@ export default function MCPServersPage() {
 			? scopeParam
 			: "all";
 	const filterTeamIds = teamParam.split(",").filter(Boolean);
+	const [credentialsParam, setCredentialsParam] = useQueryParamState(
+		"credentials",
+		"all",
+	);
+	const credentialScope = parseCredentialScopeFilter(credentialsParam);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [viewMode, setViewMode] = usePersistedViewMode("mcp-servers:view-mode");
 
@@ -68,6 +77,10 @@ export default function MCPServersPage() {
 							setTeamParam(teamIds.join(","));
 						}}
 					/>
+					<CredentialScopeFilterDropdown
+						value={credentialScope}
+						onChange={setCredentialsParam}
+					/>
 					<ViewToggle
 						value={viewMode}
 						onChange={setViewMode}
@@ -87,6 +100,7 @@ export default function MCPServersPage() {
 				search={search}
 				scope={scope}
 				filterTeamIds={filterTeamIds}
+				credentialScope={credentialScope}
 				onClearSearch={() => {
 					setSearch("");
 				}}
