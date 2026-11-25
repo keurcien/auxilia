@@ -22,6 +22,7 @@ Two policies, chosen per tool when the toolset is built:
 
 import base64
 import binascii
+import re
 from typing import Any
 
 from langchain_core.messages import ToolMessage
@@ -39,6 +40,23 @@ _GENERIC_BINARY_MIME_TYPES = frozenset(
     {"", "application/octet-stream", "binary/octet-stream"}
 )
 _MAX_INLINE_TEXT_BYTES = 200_000
+
+# Anthropic's constraint on input_schema property keys; OpenAPI-generated
+# servers (Twilio's `StartTime<`, Stripe-style `created[gte]`) break it.
+_VALID_PROPERTY_KEY = re.compile(r"^[a-zA-Z0-9_.-]{1,64}$")
+_INVALID_PROPERTY_KEY_CHARS = re.compile(r"[^a-zA-Z0-9_.-]+")
+_MAX_PROPERTY_KEY_LENGTH = 64
+# Longest first, so `<=` is not read as `<` followed by `=`.
+_PROPERTY_KEY_OPERATORS = (
+    ("<=", "_lte"),
+    (">=", "_gte"),
+    ("!=", "_ne"),
+    ("<", "_lt"),
+    (">", "_gt"),
+    ("=", "_eq"),
+)
+# Keywords whose values are data, not subschemas.
+_SCHEMA_DATA_KEYWORDS = frozenset({"const", "default", "enum", "examples"})
 
 
 def normalize_mcp_tool_schema(tool: BaseTool) -> tuple[bool, tuple[str, ...]]:
@@ -119,6 +137,121 @@ def normalize_mcp_tool_schema(tool: BaseTool) -> tuple[bool, tuple[str, ...]]:
 
     visit(schema)
     return bounds_changed, tuple(sorted(dangling_refs))
+
+
+def _property_key_candidate(key: str) -> str:
+    for operator, word in _PROPERTY_KEY_OPERATORS:
+        key = key.replace(operator, word)
+    key = _INVALID_PROPERTY_KEY_CHARS.sub("_", key).strip("_")
+    return key[:_MAX_PROPERTY_KEY_LENGTH].rstrip("_") or "param"
+
+
+def sanitize_mcp_property_keys(tool: BaseTool) -> tuple[str, ...]:
+    """Rename schema property keys that providers reject, and map the model's
+    arguments back to the server's names on every call.
+
+    Anthropic rejects the *whole request* when one property key falls outside
+    ``^[a-zA-Z0-9_.-]{1,64}$``, so a single tool would take every tool of the
+    agent down with it. Renamed keys are unique across the whole schema, which
+    lets the argument rewrite work by key alone at any depth. Returns the
+    original keys that were renamed.
+    """
+    schema = getattr(tool, "args_schema", None)
+    if not isinstance(schema, dict):
+        return ()
+
+    used: set[str] = set()
+
+    def collect(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                collect(item)
+        elif isinstance(value, dict):
+            for key, child in value.items():
+                if key in _SCHEMA_DATA_KEYWORDS:
+                    continue
+                if key == "properties" and isinstance(child, dict):
+                    used.update(child)
+                    for subschema in child.values():
+                        collect(subschema)
+                else:
+                    collect(child)
+
+    collect(schema)
+
+    originals: dict[str, str] = {}
+
+    def renamed(key: str) -> str:
+        candidate = _property_key_candidate(key)
+        unique, suffix = candidate, 2
+        while unique in used:
+            tail = f"_{suffix}"
+            unique = candidate[: _MAX_PROPERTY_KEY_LENGTH - len(tail)] + tail
+            suffix += 1
+        used.add(unique)
+        originals[unique] = key
+        return unique
+
+    def visit(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+            return
+        if not isinstance(value, dict):
+            return
+        properties = value.get("properties")
+        if isinstance(properties, dict) and any(
+            not _VALID_PROPERTY_KEY.match(key) for key in properties
+        ):
+            mapping: dict[str, str] = {}
+            rebuilt: dict[str, Any] = {}
+            for key, subschema in properties.items():
+                if _VALID_PROPERTY_KEY.match(key):
+                    rebuilt[key] = subschema
+                    continue
+                new_key = mapping[key] = renamed(key)
+                if isinstance(subschema, dict):
+                    note = f"Original parameter name: {key}"
+                    description = subschema.get("description")
+                    subschema = {
+                        **subschema,
+                        "description": f"{description}\n\n{note}"
+                        if isinstance(description, str) and description
+                        else note,
+                    }
+                rebuilt[new_key] = subschema
+            value["properties"] = rebuilt
+            required = value.get("required")
+            if isinstance(required, list):
+                value["required"] = [mapping.get(key, key) for key in required]
+        for key, child in value.items():
+            if key in _SCHEMA_DATA_KEYWORDS:
+                continue
+            if key == "properties" and isinstance(child, dict):
+                for subschema in child.values():
+                    visit(subschema)
+            else:
+                visit(child)
+
+    visit(schema)
+    if not originals:
+        return ()
+
+    original_coroutine = getattr(tool, "coroutine", None)
+    if original_coroutine is not None:
+
+        def restore(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {originals.get(k, k): restore(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [restore(item) for item in value]
+            return value
+
+        async def coroutine_with_original_keys(*args, **kwargs):
+            return await original_coroutine(*args, **restore(kwargs))
+
+        tool.coroutine = coroutine_with_original_keys
+    return tuple(sorted(originals.values()))
 
 
 def _text_from_generic_blob(data: bytes) -> str | None:

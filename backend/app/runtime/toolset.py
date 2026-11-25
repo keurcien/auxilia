@@ -21,7 +21,11 @@ from app.mcp.client.connectivity import (
     resolve_connection,
 )
 from app.mcp.client.exceptions import as_oauth_required
-from app.mcp.client.tools import bound_tool_artifact, normalize_mcp_tool_schema
+from app.mcp.client.tools import (
+    bound_tool_artifact,
+    normalize_mcp_tool_schema,
+    sanitize_mcp_property_keys,
+)
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.memories.constants import MEMORY_TOOL_NAMES
@@ -550,6 +554,14 @@ class Toolset:
 
                 stack.push_async_exit(adapter)
                 for tool in lc_tools:
+                    renamed_keys = sanitize_mcp_property_keys(tool)
+                    if renamed_keys:
+                        logger.warning(
+                            "Renamed invalid property keys %s in MCP tool schema %s/%s",
+                            ", ".join(renamed_keys),
+                            server_name,
+                            tool.name,
+                        )
                     bounds_changed, dangling_refs = normalize_mcp_tool_schema(tool)
                     if bounds_changed:
                         logger.warning(
