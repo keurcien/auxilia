@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.163](https://github.com/jr-k/auxilia/compare/web-v0.12.162...web-v0.12.163) (2026-11-25)
+
+
+### Features
+
+* **web:** show conversations in the project tree, collapse all on agent cards ([#337](https://github.com/jr-k/auxilia/issues/337)) ([a51bf64](https://github.com/jr-k/auxilia/commit/a51bf64666fb0541ff3f5b5f68f33c83dd4033e1))
+
 ## [0.12.162](https://github.com/jr-k/auxilia/compare/web-v0.12.161...web-v0.12.162) (2026-11-25)
 
 

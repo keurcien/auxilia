@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.122](https://github.com/jr-k/auxilia/compare/backend-v0.11.121...backend-v0.11.122) (2026-11-25)
+
+
+### Bug Fixes
+
+* **mcp:** keep OAuth connections when editing an MCP server's name, description or logo ([#336](https://github.com/jr-k/auxilia/issues/336)) ([adc4d30](https://github.com/jr-k/auxilia/commit/adc4d306d09187dc18dd7d68dd68b9d860cf3dce))
+
 ## [0.11.121](https://github.com/jr-k/auxilia/compare/backend-v0.11.120...backend-v0.11.121) (2026-11-25)
 
 
