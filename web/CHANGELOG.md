@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.164](https://github.com/jr-k/auxilia/compare/web-v0.12.163...web-v0.12.164) (2026-11-25)
+
+
+### Bug Fixes
+
+* **web:** don't autofocus the chat input on touch devices ([#339](https://github.com/jr-k/auxilia/issues/339)) ([2745883](https://github.com/jr-k/auxilia/commit/274588344b87a9897c327abb5e202a7e37f5c36c))
+
 ## [0.12.163](https://github.com/jr-k/auxilia/compare/web-v0.12.162...web-v0.12.163) (2026-11-25)
 
 
