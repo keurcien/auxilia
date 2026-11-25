@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.162](https://github.com/jr-k/auxilia/compare/web-v0.12.161...web-v0.12.162) (2026-11-25)
+
+
+### Features
+
+* **web:** link action buttons in every table row ([#334](https://github.com/jr-k/auxilia/issues/334)) ([94a871a](https://github.com/jr-k/auxilia/commit/94a871aff3a1d517ec807455d24d3b3f696641a9))
+
 ## [0.12.161](https://github.com/jr-k/auxilia/compare/web-v0.12.160...web-v0.12.161) (2026-11-25)
 
 
