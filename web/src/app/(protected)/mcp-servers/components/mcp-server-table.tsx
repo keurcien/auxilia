@@ -36,6 +36,10 @@ import {
 	type ResourceScopeFilter,
 } from "@/lib/resource-scope-filter";
 import { AuthTypeBadge } from "./auth-type-badge";
+import {
+	matchesCredentialScope,
+	type CredentialScopeFilter,
+} from "./credential-scope-filter";
 import { OAuthConnectionFollowUpDialog } from "./oauth-connection-follow-up-dialog";
 import { PersonalCredentialsDialog } from "./personal-credentials-dialog";
 import { ServerIconTile } from "./server-icon-tile";
@@ -46,6 +50,7 @@ interface MCPServerTableProps {
 	search: string;
 	scope: ResourceScopeFilter;
 	filterTeamIds: string[];
+	credentialScope: CredentialScopeFilter;
 	onClearSearch: () => void;
 }
 
@@ -123,6 +128,7 @@ export default function MCPServerTable({
 	search,
 	scope,
 	filterTeamIds,
+	credentialScope,
 	onClearSearch,
 }: MCPServerTableProps) {
 	const confirmDialog = useConfirmDialog();
@@ -171,13 +177,15 @@ export default function MCPServerTable({
 		return mcpServers.filter(
 			(server) =>
 				matchesResourceScope(server, scope, filterTeamIds) &&
+				matchesCredentialScope(server, credentialScope) &&
 				(!query ||
 					server.name.toLowerCase().includes(query) ||
 					server.url.toLowerCase().includes(query) ||
 					(server.description ?? "").toLowerCase().includes(query) ||
 					(server.group ?? "").toLowerCase().includes(query)),
 		);
-	}, [filterTeamIds, mcpServers, scope, search]);
+	}, [credentialScope, filterTeamIds, mcpServers, scope, search]);
+	const filtersActive = scope !== "all" || credentialScope !== "all";
 	const groupTree = useMemo(() => buildGroupTree(filtered), [filtered]);
 	const orderedServers = useMemo(() => flattenGroupTree(groupTree), [groupTree]);
 	const selectableServerIds = useMemo(
@@ -611,8 +619,8 @@ export default function MCPServerTable({
 									Clear search
 								</button>
 							</span>
-						) : scope !== "all" && mcpServers.length > 0 ? (
-							"No MCP server matches this visibility filter."
+						) : filtersActive && mcpServers.length > 0 ? (
+							"No MCP server matches these filters."
 						) : (
 							"No MCP servers configured. Add one to get started."
 						)}
@@ -787,8 +795,8 @@ export default function MCPServerTable({
 									Clear search
 								</button>
 							</span>
-						) : scope !== "all" && mcpServers.length > 0 ? (
-							"No MCP server matches this visibility filter."
+						) : filtersActive && mcpServers.length > 0 ? (
+							"No MCP server matches these filters."
 						) : (
 							"No MCP servers configured. Add one to get started."
 						)

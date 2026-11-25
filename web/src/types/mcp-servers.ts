@@ -42,7 +42,7 @@ export interface MCPServer {
 	serviceCredentialScopes?: string[];
 }
 
-type MCPServerAuthShape = Pick<MCPServer, "authType" | "credentialScope">;
+export type MCPServerAuthShape = Pick<MCPServer, "authType" | "credentialScope">;
 
 /** Each user enters their own API key or header values (stored per user). */
 export function usesUserCredentials(server: MCPServerAuthShape): boolean {
