@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.124](https://github.com/jr-k/auxilia/compare/backend-v0.11.123...backend-v0.11.124) (2026-11-25)
+
+
+### Features
+
+* **web:** used by sections on MCP server, skill and agent pages ([#343](https://github.com/jr-k/auxilia/issues/343)) ([ca206e4](https://github.com/jr-k/auxilia/commit/ca206e49c79be57b7c6420bf1f0a43febc1d8d79))
+
 ## [0.11.123](https://github.com/jr-k/auxilia/compare/backend-v0.11.122...backend-v0.11.123) (2026-11-25)
 
 

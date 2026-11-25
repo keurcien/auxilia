@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.166](https://github.com/jr-k/auxilia/compare/web-v0.12.165...web-v0.12.166) (2026-11-25)
+
+
+### Features
+
+* **web:** icon-only thread header actions with tooltips ([#344](https://github.com/jr-k/auxilia/issues/344)) ([e85b2a2](https://github.com/jr-k/auxilia/commit/e85b2a2b43dbe7c3a136a4f9aac9908a0213c38c))
+* **web:** used by sections on MCP server, skill and agent pages ([#343](https://github.com/jr-k/auxilia/issues/343)) ([ca206e4](https://github.com/jr-k/auxilia/commit/ca206e49c79be57b7c6420bf1f0a43febc1d8d79))
+
 ## [0.12.165](https://github.com/jr-k/auxilia/compare/web-v0.12.164...web-v0.12.165) (2026-11-25)
 
 
