@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.165](https://github.com/jr-k/auxilia/compare/web-v0.12.164...web-v0.12.165) (2026-11-25)
+
+
+### Features
+
+* **mcp:** personal API key and HTTP header credentials ([#341](https://github.com/jr-k/auxilia/issues/341)) ([39a3852](https://github.com/jr-k/auxilia/commit/39a38524d6cdece363473ae03b9e9e1095e31b20))
+
 ## [0.12.164](https://github.com/jr-k/auxilia/compare/web-v0.12.163...web-v0.12.164) (2026-11-25)
 
 

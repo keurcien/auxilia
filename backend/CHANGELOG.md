@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.123](https://github.com/jr-k/auxilia/compare/backend-v0.11.122...backend-v0.11.123) (2026-11-25)
+
+
+### Features
+
+* **mcp:** personal API key and HTTP header credentials ([#341](https://github.com/jr-k/auxilia/issues/341)) ([39a3852](https://github.com/jr-k/auxilia/commit/39a38524d6cdece363473ae03b9e9e1095e31b20))
+
 ## [0.11.122](https://github.com/jr-k/auxilia/compare/backend-v0.11.121...backend-v0.11.122) (2026-11-25)
 
 
