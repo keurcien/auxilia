@@ -18,7 +18,9 @@ import { ActionButton } from "@/components/ui/action-button";
 import { Agent } from "@/types/agents";
 import AgentCard from "@/app/(protected)/agents/components/agent-card";
 import AgentTable from "@/app/(protected)/agents/components/agent-table";
+import { GroupExpansionToggle } from "@/components/ui/group-expansion-toggle";
 import { buildGroupTree, flattenGroupTree, type GroupNode } from "@/lib/groups";
+import { groupTreeStorageKeys, useGroupExpanded } from "@/lib/group-expansion";
 import { useRowSelection } from "@/hooks/use-row-selection";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import type { ViewMode } from "@/components/ui/view-toggle";
@@ -142,25 +144,7 @@ function AgentSection({
 	selectionMode: boolean;
 	onToggleSelection: (agentId: string, shiftKey: boolean) => void;
 }) {
-	const [expanded, setExpanded] = useState(() => {
-		try {
-			return localStorage.getItem(storageKey) !== "0";
-		} catch {
-			return true;
-		}
-	});
-
-	const toggle = () => {
-		setExpanded((v) => {
-			const next = !v;
-			try {
-				localStorage.setItem(storageKey, next ? "1" : "0");
-			} catch {
-				// The in-session state still works when persistence is unavailable.
-			}
-			return next;
-		});
-	};
+	const [expanded, toggle] = useGroupExpanded(storageKey);
 
 	return (
 		<section className="animate-in fade-in duration-300">
@@ -485,6 +469,15 @@ export default function AgentList({
 	return (
 		<div className="w-full animate-in fade-in duration-300">
 			{bulkControls}
+			{groupTree.groups.length > 0 && (
+				<GroupExpansionToggle
+					storageKeys={groupTreeStorageKeys(
+						groupTree,
+						(path) => `agents:group:${view}:${path}:expanded`,
+					)}
+					className="mb-1"
+				/>
+			)}
 			{groupTree.groups.map((group) => (
 				<AgentSection
 					key={`${view}:${group.path}`}

@@ -677,26 +677,31 @@ function ProjectTreeNavigation({
 	expanded,
 	onSelect,
 	onToggle,
+	onToggleCompletion,
 }: {
 	detail: ProjectDetail;
 	selectedFolderId: string | null;
 	expanded: Set<string>;
 	onSelect: (id: string | null) => void;
 	onToggle: (id: string) => void;
+	onToggleCompletion: (thread: ProjectThread) => void;
 }) {
 	const normalized = useMemo(() => normalizeProjectTree(detail), [detail]);
 	const treeRef = useRef<HTMLUListElement>(null);
 
 	const handleTreeKey = (
-		event: React.KeyboardEvent<HTMLButtonElement>,
-		folder: ProjectFolder | null,
-		children: number,
-		isOpen: boolean,
+		event: React.KeyboardEvent<HTMLElement>,
+		node: {
+			id: string;
+			parentKey: string;
+			/** Set for a folder, the only node that collapses. */
+			folderId: string | null;
+			hasChildren: boolean;
+			isOpen: boolean;
+		},
 	) => {
 		const nodes = Array.from(
-			treeRef.current?.querySelectorAll<HTMLButtonElement>(
-				"button[data-tree-id]",
-			) ?? [],
+			treeRef.current?.querySelectorAll<HTMLElement>("[data-tree-id]") ?? [],
 		);
 		const index = nodes.indexOf(event.currentTarget);
 		if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
@@ -714,31 +719,98 @@ function ProjectTreeNavigation({
 		}
 		if (event.key === "ArrowLeft") {
 			event.preventDefault();
-			if (folder && isOpen) {
-				onToggle(folder.id);
+			if (node.folderId && node.isOpen) {
+				onToggle(node.folderId);
 				return;
 			}
-			const parentId = folder?.parentId ?? null;
 			nodes
-				.find((node) => node.dataset.treeId === (parentId ?? PROJECT_ROOT))
+				.find((candidate) => candidate.dataset.treeId === node.parentKey)
 				?.focus();
 			return;
 		}
-		if (event.key === "ArrowRight" && children > 0) {
+		if (event.key === "ArrowRight" && node.hasChildren) {
 			event.preventDefault();
-			if (folder && !isOpen) {
-				onToggle(folder.id);
+			if (node.folderId && !node.isOpen) {
+				onToggle(node.folderId);
 				return;
 			}
-			const parentId = folder?.id ?? PROJECT_ROOT;
-			nodes.find((node) => node.dataset.treeParent === parentId)?.focus();
+			nodes
+				.find((candidate) => candidate.dataset.treeParent === node.id)
+				?.focus();
 		}
 	};
+
+	const childCount = (key: string) =>
+		(normalized.foldersByParent.get(key)?.length ?? 0) +
+		(normalized.threadsByFolder.get(key)?.length ?? 0);
+
+	const renderThreads = (parentKey: string, depth: number) =>
+		(normalized.threadsByFolder.get(parentKey) ?? []).map((thread) => {
+			const title = titleOf(thread);
+			return (
+				<li key={thread.id} role="treeitem" aria-selected={false}>
+					<div
+						className="flex h-8 items-center rounded-[6px] transition-colors hover:bg-hover dark:hover:bg-white/10"
+						style={{ paddingLeft: `${depth * 12 + 4}px` }}
+					>
+						<span className="size-6 shrink-0" />
+						{thread.canComplete ? (
+							<ConversationCompletionButton
+								completed={thread.completedAt !== null}
+								onToggle={() => {
+									onToggleCompletion(thread);
+								}}
+								className="mr-2 size-4"
+							/>
+						) : (
+							<span
+								className={cn(
+									"mr-2 flex size-4 shrink-0 items-center justify-center rounded-full border",
+									thread.completedAt
+										? "border-emerald-600 bg-emerald-600 text-white"
+										: "border-border text-transparent",
+								)}
+							>
+								<Check className="size-2.5" strokeWidth={3} />
+							</span>
+						)}
+						<Link
+							href={`/agents/${thread.agentId}/chat/${thread.id}`}
+							prefetch={false}
+							title={title}
+							data-tree-id={thread.id}
+							data-tree-parent={parentKey}
+							tabIndex={-1}
+							onKeyDown={(event) => {
+								handleTreeKey(event, {
+									id: thread.id,
+									parentKey,
+									folderId: null,
+									hasChildren: false,
+									isOpen: false,
+								});
+							}}
+							className="flex min-w-0 flex-1 items-center gap-2 self-stretch pr-1.5"
+						>
+							<span
+								className={cn(
+									"truncate text-[11.5px]",
+									thread.completedAt ? "text-meta" : "text-foreground",
+								)}
+							>
+								{title}
+							</span>
+							{thread.isUnread && <ThreadUnreadBadge />}
+						</Link>
+					</div>
+				</li>
+			);
+		});
 
 	const renderFolders = (parentId: string | null, depth: number) =>
 		(normalized.foldersByParent.get(parentId ?? PROJECT_ROOT) ?? []).map(
 			(folder) => {
-				const children = normalized.foldersByParent.get(folder.id)?.length ?? 0;
+				const children = childCount(folder.id);
 				const isOpen = expanded.has(folder.id);
 				const isSelected = selectedFolderId === folder.id;
 				return (
@@ -780,11 +852,13 @@ function ProjectTreeNavigation({
 									onSelect(folder.id);
 								}}
 								onKeyDown={(event) => {
-									if (event.key === "ArrowRight" && children > 0 && !isOpen) {
-										handleTreeKey(event, folder, children, isOpen);
-										return;
-									}
-									handleTreeKey(event, folder, children, isOpen);
+									handleTreeKey(event, {
+										id: folder.id,
+										parentKey: folder.parentId ?? PROJECT_ROOT,
+										folderId: folder.id,
+										hasChildren: children > 0,
+										isOpen,
+									});
 								}}
 								className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left"
 							>
@@ -797,6 +871,7 @@ function ProjectTreeNavigation({
 						{isOpen && children > 0 && (
 							<ul role="group" className="space-y-px pt-px">
 								{renderFolders(folder.id, depth + 1)}
+								{renderThreads(folder.id, depth + 1)}
 							</ul>
 						)}
 					</li>
@@ -808,7 +883,7 @@ function ProjectTreeNavigation({
 		<ul
 			ref={treeRef}
 			role="tree"
-			aria-label="Project folders"
+			aria-label="Project content"
 			className="space-y-px"
 		>
 			<li role="treeitem" aria-selected={selectedFolderId === null}>
@@ -821,12 +896,13 @@ function ProjectTreeNavigation({
 						onSelect(null);
 					}}
 					onKeyDown={(event) => {
-						handleTreeKey(
-							event,
-							null,
-							normalized.foldersByParent.get(PROJECT_ROOT)?.length ?? 0,
-							true,
-						);
+						handleTreeKey(event, {
+							id: PROJECT_ROOT,
+							parentKey: "",
+							folderId: null,
+							hasChildren: childCount(PROJECT_ROOT) > 0,
+							isOpen: true,
+						});
 					}}
 					className={cn(
 						"flex h-8 w-full cursor-pointer items-center gap-2 rounded-[6px] px-2 text-left transition-colors hover:bg-hover dark:hover:bg-white/10",
@@ -840,6 +916,7 @@ function ProjectTreeNavigation({
 				</button>
 			</li>
 			{renderFolders(null, 0)}
+			{renderThreads(PROJECT_ROOT, 0)}
 		</ul>
 	);
 }
@@ -1545,6 +1622,9 @@ export default function ProjectDetailView({
 												else next.add(id);
 												return next;
 											});
+										}}
+										onToggleCompletion={(thread) => {
+											void toggleCompletion(thread);
 										}}
 									/>
 								</aside>
