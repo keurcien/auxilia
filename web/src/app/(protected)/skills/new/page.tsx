@@ -1,13 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import {
+	AddToAgentsDialog,
+	type AttachedResource,
+} from "@/components/editor/add-to-agents-dialog";
 import SkillEditor from "../components/skill-editor";
 import { useRoleGate } from "../lib/use-role-gate";
 
 export default function NewSkillPage() {
 	const router = useRouter();
 	const gate = useRoleGate("editor");
+	const [created, setCreated] = useState<AttachedResource | null>(null);
 
 	// Nothing until the role is known: `/auth/me` in flight looks exactly like
 	// "no user", so rendering the editor optimistically shows a member a whole
@@ -28,13 +34,25 @@ export default function NewSkillPage() {
 	}
 
 	return (
-		<SkillEditor
-			onSaved={(skill) => {
-				router.push(`/skills/${skill.id}`);
-			}}
-			onCancel={() => {
-				router.push("/skills");
-			}}
-		/>
+		<>
+			<SkillEditor
+				onSaved={(skill) => {
+					setCreated(skill);
+				}}
+				onCancel={() => {
+					router.push("/skills");
+				}}
+			/>
+			{created && (
+				<AddToAgentsDialog
+					key={created.id}
+					kind="skill"
+					resource={created}
+					onDone={() => {
+						router.push(`/skills/${created.id}`);
+					}}
+				/>
+			)}
+		</>
 	);
 }

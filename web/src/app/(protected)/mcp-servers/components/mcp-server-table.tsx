@@ -424,15 +424,12 @@ export default function MCPServerTable({
 					<RowTestButton server={server} />
 					{isAdmin && (
 						<>
-							<button
-								type="button"
-								onClick={() => {
-									router.push(serverEditHref(server));
-								}}
+							<Link
+								href={serverEditHref(server)}
 								className="cursor-pointer rounded-[7px] border border-border px-[11px] py-[5px] text-[12px] font-medium text-body transition-colors hover:bg-sidebar dark:text-panel-body dark:hover:bg-white/5"
 							>
 								Edit
-							</button>
+							</Link>
 							<DropdownMenu
 								items={
 									server.managedBy === "database"
@@ -696,15 +693,12 @@ export default function MCPServerTable({
 									<RowTestButton server={server} />
 									{isAdmin && (
 										<>
-											<button
-												type="button"
-												onClick={() => {
-													router.push(serverEditHref(server));
-												}}
+											<Link
+												href={serverEditHref(server)}
 												className="cursor-pointer rounded-[7px] border border-border px-[11px] py-[5px] text-[12px] font-medium text-body transition-colors hover:bg-sidebar dark:text-panel-body dark:hover:bg-white/5"
 											>
 												Edit
-											</button>
+											</Link>
 											<DropdownMenu
 												items={
 													server.managedBy === "database"

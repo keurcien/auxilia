@@ -5,6 +5,10 @@ import { Fragment } from "react";
 
 import { PageContainer } from "@/components/layout/page-container";
 import type { BreadcrumbSegment } from "@/components/layout/subpage-header";
+import {
+	ActionButton,
+	type ActionButtonProps,
+} from "@/components/ui/action-button";
 import { SearchBar } from "@/components/ui/search-bar";
 import { cn } from "@/lib/utils";
 import { useWorkspacesStore } from "@/stores/workspaces-store";
@@ -159,10 +163,9 @@ export function WorkspaceTopBarButton({
 	className,
 	children,
 	...props
-}: React.ComponentProps<"button">) {
+}: ActionButtonProps) {
 	return (
-		<button
-			type="button"
+		<ActionButton
 			className={cn(
 				"flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[7px] bg-primary px-[18px] py-[9px] text-[13.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
 				className,
@@ -170,6 +173,6 @@ export function WorkspaceTopBarButton({
 			{...props}
 		>
 			{children}
-		</button>
+		</ActionButton>
 	);
 }

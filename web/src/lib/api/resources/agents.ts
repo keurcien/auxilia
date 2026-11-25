@@ -131,6 +131,28 @@ export async function saveAgentConfig(agentId: string, payload: AgentWrite): Pro
 	return response.data;
 }
 
+/** A resource that can be enabled on an agent one at a time. */
+export type AttachableResource = "mcpServer" | "skill" | "subagent";
+
+const ATTACH_PATHS: Record<AttachableResource, string> = {
+	mcpServer: "mcp-servers",
+	skill: "skills",
+	subagent: "subagents",
+};
+
+/** Enable one resource on an agent without resending its whole config.
+ * Idempotent: an existing binding is left as it is (MCP: its default is updated). */
+export async function attachToAgent(
+	agentId: string,
+	kind: AttachableResource,
+	resourceId: string,
+	options: { enabledByDefault: boolean },
+): Promise<void> {
+	await api.post(`/agents/${agentId}/${ATTACH_PATHS[kind]}/${resourceId}`, {
+		enabledByDefault: options.enabledByDefault,
+	});
+}
+
 export function agentImageUrl(agentId: string, revision: string): string {
 	return `/api/backend/agents/${agentId}/image?v=${encodeURIComponent(revision)}`;
 }

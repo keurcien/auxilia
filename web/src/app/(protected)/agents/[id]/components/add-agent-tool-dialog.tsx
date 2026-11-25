@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { SandboxIcon } from "@/components/sandbox-icon";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -156,7 +155,6 @@ function MCPServerSection({
 	onOpenChange: (open: boolean) => void;
 	onAddServer: (serverId: string) => void;
 }) {
-	const router = useRouter();
 	const [allServers, setAllServers] = useState<MCPServer[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [loadError, setLoadError] = useState<string | null>(null);
@@ -246,7 +244,7 @@ function MCPServerSection({
 							</p>
 							<DialogButton
 								variant="outline"
-								onClick={() => { router.push("/mcp-servers"); }}
+								href="/mcp-servers"
 							>
 								Add MCP server
 							</DialogButton>

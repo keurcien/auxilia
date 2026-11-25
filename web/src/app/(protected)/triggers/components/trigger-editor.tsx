@@ -33,6 +33,8 @@ import { Switch } from "@/components/ui/switch";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import { VisibilityPicker } from "@/components/ui/visibility-picker";
+import { ProjectVisibilityEditor } from "@/components/sharing/project-visibility-editor";
+import { useScopeChangePlanner } from "@/components/sharing/scope-plan-dialog";
 import type { ResourceVisibility } from "@/types/visibility";
 import { groupOptions } from "@/lib/groups";
 import { getProjectFolderPath } from "@/lib/project-folders";
@@ -189,6 +191,7 @@ export default function TriggerEditor({
 	const projectTree = useProjectsStore((state) => state.tree);
 	const fetchProjects = useProjectsStore((state) => state.fetchProjects);
 	const confirmDialog = useConfirmDialog();
+	const { requestScopeChange, dialog: scopePlanDialog } = useScopeChangePlanner();
 	const type = trigger?.triggerType ?? triggerType ?? "schedule";
 
 	const initialForm = useMemo(
@@ -303,6 +306,23 @@ export default function TriggerEditor({
 			autoComplete: form.autoComplete,
 		};
 		try {
+			const standaloneScopeChanged =
+				trigger !== undefined &&
+				trigger.projectId === null &&
+				form.projectId === null &&
+				form.agentId === trigger.agentId &&
+				(form.visibility !== initialForm.visibility ||
+					[...form.teamIds].sort().join(",") !==
+						[...initialForm.teamIds].sort().join(","));
+			if (standaloneScopeChanged) {
+				const outcome = await requestScopeChange({
+					kind: "trigger",
+					id: trigger.id,
+					visibility: form.visibility,
+					teamIds: form.teamIds,
+				});
+				if (outcome === "cancelled") return;
+			}
 			let saved: Trigger;
 			if (type === "schedule") {
 				if (!cronExpression) return;
@@ -352,6 +372,7 @@ export default function TriggerEditor({
 
 	return (
 		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background animate-in fade-in duration-300">
+			{scopePlanDialog}
 			<SubpageHeader
 				trail={[
 					{ label: "workspace" },
@@ -439,12 +460,20 @@ export default function TriggerEditor({
 					</div>
 					{selectedProject ? (
 						<div className="flex flex-wrap items-center gap-2 rounded-[8px] bg-petrol-tint px-3 py-2 text-[11.5px] leading-5 text-petrol dark:bg-white/5 dark:text-panel-dim">
-							<span>Access is inherited from {selectedProject.name}.</span>
-							<VisibilityBadge
-								visibility={selectedProject.visibility}
-								teamIds={selectedProject.teamIds}
-								showTeams
-							/>
+							<span>
+								Access is inherited from {selectedProject.name}.
+								{selectedProject.canManage &&
+									" Changing it here shares the whole project."}
+							</span>
+							{selectedProject.canManage ? (
+								<ProjectVisibilityEditor project={selectedProject} />
+							) : (
+								<VisibilityBadge
+									visibility={selectedProject.visibility}
+									teamIds={selectedProject.teamIds}
+									showTeams
+								/>
+							)}
 						</div>
 					) : (
 						<VisibilityPicker

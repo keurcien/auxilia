@@ -54,7 +54,7 @@ import { EmojiPickerPopover } from "@/components/ui/emoji-picker-popover";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
 import { ThreadUnreadBadge } from "@/components/ui/thread-unread-badge";
 import { UsageBadge } from "@/components/usage/usage-badge";
-import { VisibilityPicker } from "@/components/ui/visibility-picker";
+import { ProjectVisibilityEditor } from "@/components/sharing/project-visibility-editor";
 import { ConversationCompletionButton } from "@/components/layout/app-sidebar/conversation-completion-button";
 import { FolderDialog } from "@/components/layout/app-sidebar/folder-dialog";
 import {
@@ -95,7 +95,6 @@ import type {
 	ProjectThread,
 	ProjectTrigger,
 } from "@/types/projects";
-import type { ResourceVisibility } from "@/types/visibility";
 import { ProjectInfoPanel } from "./project-info-panel";
 
 type ProjectView = "directory" | "split";
@@ -368,96 +367,6 @@ function ProjectDescription({ project }: { project: ProjectDetail }) {
 				<Loader2
 					aria-label="Saving project description"
 					className="absolute right-1 top-1 size-3.5 animate-spin text-meta"
-				/>
-			)}
-		</div>
-	);
-}
-
-function ProjectVisibilityEditor({ project }: { project: ProjectDetail }) {
-	const updateProject = useProjectsStore((state) => state.updateProject);
-	const [visibility, setVisibility] = useState(project.visibility);
-	const [teamIds, setTeamIds] = useState(project.teamIds);
-	const [saving, setSaving] = useState(false);
-	const committedRef = useRef({
-		visibility: project.visibility,
-		teamIds: project.teamIds,
-	});
-	const saveVersionRef = useRef(0);
-
-	useEffect(() => {
-		setVisibility(project.visibility);
-		setTeamIds(project.teamIds);
-		committedRef.current = {
-			visibility: project.visibility,
-			teamIds: project.teamIds,
-		};
-	}, [project.teamIds, project.visibility]);
-
-	const resetToCommitted = () => {
-		setVisibility(committedRef.current.visibility);
-		setTeamIds(committedRef.current.teamIds);
-	};
-
-	const changeVisibility = async (
-		nextVisibility: ResourceVisibility,
-		nextTeamIds: string[],
-	) => {
-		if (nextVisibility === "teams" && nextTeamIds.length === 0) {
-			if (visibility !== "teams") {
-				setVisibility("teams");
-				setTeamIds([]);
-			}
-			return;
-		}
-
-		const previous = committedRef.current;
-		const next = {
-			visibility: nextVisibility,
-			teamIds: nextTeamIds,
-		};
-		setVisibility(nextVisibility);
-		setTeamIds(nextTeamIds);
-		committedRef.current = next;
-		const version = ++saveVersionRef.current;
-		setSaving(true);
-		try {
-			await updateProject(project.id, next);
-		} catch (error) {
-			if (version === saveVersionRef.current) {
-				committedRef.current = previous;
-				resetToCommitted();
-				toast.error(
-					getApiErrorMessage(
-						error,
-						"The project visibility could not be saved.",
-					),
-				);
-			}
-		} finally {
-			if (version === saveVersionRef.current) setSaving(false);
-		}
-	};
-
-	return (
-		<div className="mt-1 flex items-center gap-1">
-			<VisibilityPicker
-				compact
-				visibility={visibility}
-				teamIds={teamIds}
-				onChange={(nextVisibility, nextTeamIds) => {
-					void changeVisibility(nextVisibility, nextTeamIds);
-				}}
-				onOpenChange={(open) => {
-					if (!open && visibility === "teams" && teamIds.length === 0) {
-						resetToCommitted();
-					}
-				}}
-			/>
-			{saving && (
-				<Loader2
-					aria-label="Saving project visibility"
-					className="size-3.5 animate-spin text-meta"
 				/>
 			)}
 		</div>
@@ -1659,7 +1568,9 @@ export default function ProjectDetailView({
 											<>
 												<ProjectDescription project={detail} />
 												{detail.canManage && (
-													<ProjectVisibilityEditor project={detail} />
+													<div className="mt-1">
+														<ProjectVisibilityEditor project={detail} />
+													</div>
 												)}
 											</>
 										)}

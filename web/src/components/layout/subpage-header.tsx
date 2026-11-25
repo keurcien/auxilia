@@ -2,6 +2,10 @@ import Link from "next/link";
 import { Lock } from "lucide-react";
 import { Fragment } from "react";
 import { cn } from "@/lib/utils";
+import {
+	ActionButton,
+	type ActionButtonProps,
+} from "@/components/ui/action-button";
 
 export interface BreadcrumbSegment {
 	label: string;
@@ -98,10 +102,9 @@ export function HeaderButton({
 	className,
 	children,
 	...props
-}: React.ComponentProps<"button"> & { accent?: boolean }) {
+}: ActionButtonProps & { accent?: boolean }) {
 	return (
-		<button
-			type="button"
+		<ActionButton
 			className={cn(
 				"flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[7px] border border-input bg-card px-4 py-2 text-[13px] font-semibold transition-colors hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.03] dark:hover:border-white/20",
 				accent
@@ -112,7 +115,7 @@ export function HeaderButton({
 			{...props}
 		>
 			{children}
-		</button>
+		</ActionButton>
 	);
 }
 
@@ -121,10 +124,9 @@ export function HeaderPrimaryButton({
 	className,
 	children,
 	...props
-}: React.ComponentProps<"button">) {
+}: ActionButtonProps) {
 	return (
-		<button
-			type="button"
+		<ActionButton
 			className={cn(
 				"cursor-pointer whitespace-nowrap rounded-[7px] bg-petrol px-[18px] py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
 				className,
@@ -132,6 +134,6 @@ export function HeaderPrimaryButton({
 			{...props}
 		>
 			{children}
-		</button>
+		</ActionButton>
 	);
 }

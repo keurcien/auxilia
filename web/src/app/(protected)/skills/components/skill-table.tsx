@@ -488,13 +488,9 @@ export default function SkillTable({
 							{
 								label: skill.canEdit || skill.canManage ? "Edit" : "Open",
 								icon: <Pencil />,
-								onClick: () => {
-									router.push(
-										`/skills/${skill.id}${
-											skill.canEdit || skill.canManage ? "?edit=1" : ""
-										}`,
-									);
-								},
+								href: `/skills/${skill.id}${
+									skill.canEdit || skill.canManage ? "?edit=1" : ""
+								}`,
 							},
 							...(skill.fileCount === 0 && (skill.canEdit || skill.canManage)
 								? [
@@ -667,13 +663,9 @@ export default function SkillTable({
 										label:
 											skill.canEdit || skill.canManage ? "Edit" : "Open",
 										icon: <Pencil />,
-										onClick: () => {
-											router.push(
-												`/skills/${skill.id}${
-													skill.canEdit || skill.canManage ? "?edit=1" : ""
-												}`,
-											);
-										},
+										href: `/skills/${skill.id}${
+											skill.canEdit || skill.canManage ? "?edit=1" : ""
+										}`,
 									},
 									...(skill.fileCount === 0 &&
 									(skill.canEdit || skill.canManage)

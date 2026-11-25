@@ -13,6 +13,7 @@ from app.agents.mcp_servers.service import (
 )
 from app.agents.models import EffectivePermission
 from app.agents.schemas import (
+    AgentBindingCreate,
     AgentConfig,
     AgentListResponse,
     AgentMCPServerCreate,
@@ -23,6 +24,7 @@ from app.agents.schemas import (
     AgentPermissionResponse,
     AgentResourcesResponse,
     AgentResponse,
+    AgentSkillResponse,
     AgentSubagentResponse,
     AgentTeamsResponse,
     AgentTeamsSet,
@@ -376,11 +378,9 @@ async def create_or_update_mcp_server(
     server_id: UUID,
     data: AgentMCPServerCreate,
     current_user: UserDB = Depends(get_current_user),
-    service: AgentMCPServerService = Depends(get_agent_mcp_server_service),
+    service: AgentService = Depends(get_agent_service),
 ) -> AgentMCPServerResponse:
-    return await service.create_or_update(
-        agent_id, server_id, data, str(current_user.id)
-    )
+    return await service.attach_mcp_server(agent_id, server_id, data, current_user.id)
 
 
 @router.patch(
@@ -439,12 +439,14 @@ async def sync_tools(
 async def create_subagent(
     agent_id: UUID,
     subagent_id: UUID,
+    data: AgentBindingCreate | None = None,
     current_user: UserDB = Depends(get_current_user),
     service: AgentService = Depends(get_agent_service),
 ) -> AgentSubagentResponse:
-    return await service.create_subagent(
+    return await service.attach_subagent(
         agent_id,
         subagent_id,
+        enabled_by_default=(data or AgentBindingCreate()).enabled_by_default,
         user_id=current_user.id,
         user_role=current_user.role,
         user_team_id=current_user.team_id,
@@ -468,6 +470,29 @@ async def delete_subagent(
     service: AgentService = Depends(get_agent_service),
 ) -> None:
     await service.delete_subagent(agent_id, subagent_id)
+
+
+@router.post(
+    "/{agent_id}/skills/{skill_id}",
+    response_model=AgentSkillResponse,
+    status_code=201,
+    dependencies=[
+        Depends(
+            require_agent_permission(
+                EffectivePermission.editor, action="edit this agent's skills"
+            )
+        )
+    ],
+)
+async def attach_skill(
+    agent_id: UUID,
+    skill_id: UUID,
+    data: AgentBindingCreate,
+    service: AgentService = Depends(get_agent_service),
+) -> AgentSkillResponse:
+    return await service.attach_skill(
+        agent_id, skill_id, enabled_by_default=data.enabled_by_default
+    )
 
 
 @router.get(

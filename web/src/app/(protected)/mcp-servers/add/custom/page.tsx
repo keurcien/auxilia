@@ -6,6 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, FileKey2, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
+import {
+	AddToAgentsDialog,
+	type AttachedResource,
+} from "@/components/editor/add-to-agents-dialog";
 import { Alert } from "@/components/ui/alert";
 import { GroupPicker } from "@/components/ui/group-picker";
 import { VisibilityPicker } from "@/components/ui/visibility-picker";
@@ -180,6 +184,7 @@ export default function CustomMCPServerPage() {
 		useState<OfficialMCPServer | null>(null);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [created, setCreated] = useState<AttachedResource | null>(null);
 	const [showSecret, setShowSecret] = useState(false);
 	const [credentialFileName, setCredentialFileName] = useState<string | null>(
 		null,
@@ -287,7 +292,13 @@ export default function CustomMCPServerPage() {
 				}
 			}
 			toast.success(`${form.name.trim()} added to the workspace`);
-			router.push(`/mcp-servers/${created.id}?edit=1`);
+			setCreated({
+				id: created.id,
+				name: created.name,
+				visibility: created.visibility ?? "workspace",
+				ownerId: created.ownerId,
+				teamIds: created.teamIds,
+			});
 		} catch (error: unknown) {
 			if (
 				error instanceof Object &&
@@ -359,14 +370,12 @@ export default function CustomMCPServerPage() {
 			>
 				<HeaderButton
 					disabled={isSubmitting}
-					onClick={() => {
-						router.push("/mcp-servers/add");
-					}}
+					href="/mcp-servers/add"
 				>
 					Cancel
 				</HeaderButton>
 				<HeaderPrimaryButton
-					disabled={!canSubmit || isSubmitting}
+					disabled={!canSubmit || isSubmitting || created !== null}
 					onClick={() => {
 						void handleCreate();
 					}}
@@ -404,6 +413,29 @@ export default function CustomMCPServerPage() {
 					</p>
 
 					<div className="mt-7 flex flex-col gap-[18px]">
+						<div className="flex flex-col gap-[7px]">
+							<label htmlFor="mcp-name" className={LABEL_CLASS}>
+								Name <span className="text-destructive">*</span>
+							</label>
+							<input
+								id="mcp-name"
+								placeholder="e.g. Internal warehouse"
+								value={form.name}
+								onChange={(e) => {
+									handleFormChange("name", e.target.value);
+								}}
+								aria-required="true"
+								aria-invalid={!!errors.name}
+								aria-describedby={errors.name ? "mcp-name-error" : undefined}
+								className={INPUT_CLASS}
+							/>
+							{errors.name && (
+								<span id="mcp-name-error" className={ERROR_CLASS}>
+									{errors.name}
+								</span>
+							)}
+						</div>
+
 						{/* Remote server address */}
 						<div className="flex flex-col gap-[7px]">
 							<label htmlFor="mcp-url" className={LABEL_CLASS}>
@@ -429,29 +461,6 @@ export default function CustomMCPServerPage() {
 								<span className="text-[12px] text-meta dark:text-panel-dim">
 									Streamable HTTP endpoint, the only transport {appName}{" "}
 									supports.
-								</span>
-							)}
-						</div>
-
-						<div className="flex flex-col gap-[7px]">
-							<label htmlFor="mcp-name" className={LABEL_CLASS}>
-								Name <span className="text-destructive">*</span>
-							</label>
-							<input
-								id="mcp-name"
-								placeholder="e.g. Internal warehouse"
-								value={form.name}
-								onChange={(e) => {
-									handleFormChange("name", e.target.value);
-								}}
-								aria-required="true"
-								aria-invalid={!!errors.name}
-								aria-describedby={errors.name ? "mcp-name-error" : undefined}
-								className={INPUT_CLASS}
-							/>
-							{errors.name && (
-								<span id="mcp-name-error" className={ERROR_CLASS}>
-									{errors.name}
 								</span>
 							)}
 						</div>
@@ -856,6 +865,16 @@ export default function CustomMCPServerPage() {
 				message={testMessage}
 				onClose={resetTest}
 			/>
+			{created && (
+				<AddToAgentsDialog
+					key={created.id}
+					kind="mcpServer"
+					resource={created}
+					onDone={() => {
+						router.push(`/mcp-servers/${created.id}?edit=1`);
+					}}
+				/>
+			)}
 		</div>
 	);
 }

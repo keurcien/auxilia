@@ -20,6 +20,10 @@ import { AuthTypeBadge } from "../components/auth-type-badge";
 import { ServerIconTile } from "../components/server-icon-tile";
 import { HeaderButton, SubpageHeader } from "@/components/layout/subpage-header";
 import { requiresStaticOAuthCredentials } from "../lib/mcp-server-create-form";
+import {
+	AddToAgentsDialog,
+	type AttachedResource,
+} from "@/components/editor/add-to-agents-dialog";
 
 function syncSummary(result: MCPCatalogSyncResult): string {
 	const changes = [
@@ -107,6 +111,7 @@ export default function AddMCPServerPage() {
 	const [pendingUrl, setPendingUrl] = useState<string | null>(null);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
+	const [created, setCreated] = useState<AttachedResource | null>(null);
 	const [isSyncing, setIsSyncing] = useState(false);
 	const [syncStatus, setSyncStatus] = useState<{
 		kind: "info" | "error";
@@ -214,7 +219,13 @@ export default function AddMCPServerPage() {
 				return next;
 			});
 			toast.success(`${server.name} added to the workspace`);
-			router.push(`/mcp-servers/${created.id}?edit=1`);
+			setCreated({
+				id: created.id,
+				name: created.name,
+				visibility: created.visibility ?? "workspace",
+				ownerId: created.ownerId,
+				teamIds: created.teamIds,
+			});
 		} catch (error: unknown) {
 			if (error instanceof Object && "status" in error && error.status === 403) {
 				setForbiddenOpen(true);
@@ -253,11 +264,7 @@ export default function AddMCPServerPage() {
 						Sync catalog
 					</HeaderButton>
 				)}
-				<HeaderButton
-					onClick={() => {
-						router.push("/mcp-servers");
-					}}
-				>
+				<HeaderButton href="/mcp-servers">
 					Cancel
 				</HeaderButton>
 			</SubpageHeader>
@@ -343,7 +350,7 @@ export default function AddMCPServerPage() {
 												(addedCounts.get(server.url) ?? 0)
 											}
 											isPending={pendingUrl === server.url}
-											disabled={pendingUrl !== null}
+											disabled={pendingUrl !== null || created !== null}
 											onAdd={() => {
 												void handleAdd(server);
 											}}
@@ -369,6 +376,16 @@ export default function AddMCPServerPage() {
 				title="Insufficient privileges"
 				message="You need admin permissions to add MCP servers."
 			/>
+			{created && (
+				<AddToAgentsDialog
+					key={created.id}
+					kind="mcpServer"
+					resource={created}
+					onDone={() => {
+						router.push(`/mcp-servers/${created.id}?edit=1`);
+					}}
+				/>
+			)}
 		</div>
 	);
 }

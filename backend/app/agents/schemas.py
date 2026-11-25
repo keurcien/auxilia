@@ -170,6 +170,12 @@ class AgentMCPServerCreate(SQLModel):
     tools: dict[str, ToolStatus] | None = None
 
 
+class AgentBindingCreate(SQLModel):
+    """Body of a single skill or subagent attach: its new-conversation default."""
+
+    enabled_by_default: bool = True
+
+
 class AgentMCPServerPatch(SQLModel):
     enabled_by_default: bool | None = None
     tools: dict[str, ToolStatus] | None = None

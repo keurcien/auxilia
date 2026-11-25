@@ -59,7 +59,6 @@ import type { Trigger } from "@/types/triggers";
 interface TriggerListProps {
 	view: "active" | "paused";
 	mode: ViewMode;
-	onCreate: () => void;
 	canCreate: boolean;
 	search: string;
 	scope: ResourceScopeFilter;
@@ -183,7 +182,6 @@ function TriggerOptionIcons({ trigger }: { trigger: Trigger }) {
 export default function TriggerList({
 	view,
 	mode,
-	onCreate,
 	canCreate,
 	search,
 	scope,
@@ -491,9 +489,7 @@ export default function TriggerList({
 								{
 									label: "Edit",
 									icon: <Pencil />,
-									onClick: () => {
-										router.push(`/triggers/${trigger.id}?edit=1`);
-									},
+									href: `/triggers/${trigger.id}?edit=1`,
 								},
 								...(canCreate
 									? [
@@ -601,16 +597,13 @@ export default function TriggerList({
 					</p>
 				</div>
 				{canCreate && (
-					<button
-						type="button"
-						onClick={() => {
-							onCreate();
-						}}
+					<Link
+						href="/triggers/new"
 						className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-3.5 py-[7px] text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
 					>
 						<Plus className="size-4" />
 						New trigger
-					</button>
+					</Link>
 				)}
 			</div>
 		);

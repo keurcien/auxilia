@@ -67,6 +67,7 @@ from app.runtime.runs.reaper import RunReaper
 from app.runtime.runs.settings import run_settings
 from app.runtime.runs.worker import RunDispatcher
 from app.sandbox.router import sandboxes_router
+from app.sharing.router import router as sharing_router
 from app.skills.router import router as skills_router
 from app.skills.sources.router import router as skill_sources_router
 from app.teams.router import router as teams_router
@@ -361,6 +362,7 @@ app.include_router(threads_router)
 app.include_router(conversation_shares_router)
 app.include_router(public_conversation_shares_router)
 app.include_router(triggers_router)
+app.include_router(sharing_router)
 app.include_router(usage_router)
 app.include_router(skill_sources_router)  # before /skills/{skill_id}
 app.include_router(skills_router)

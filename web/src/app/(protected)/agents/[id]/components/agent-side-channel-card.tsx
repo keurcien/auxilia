@@ -16,6 +16,7 @@ import {
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as agentsApi from "@/lib/api/resources/agents";
 import { handleKeyboardListNavigation } from "@/lib/keyboard-list-navigation";
+import { matchesQuery } from "@/lib/quick-search";
 import { useAppearanceStore } from "@/stores/appearance-store";
 import type {
 	AgentSlackBotSettings,
@@ -34,6 +35,8 @@ interface Props {
 	canManage: boolean;
 	readOnly: boolean;
 	onCountChange?: (count: number) => void;
+	/** Quick search: only the connections matching it are shown. */
+	query?: string;
 }
 
 type SideChannelConnection =
@@ -58,6 +61,7 @@ export default function AgentSideChannelCard({
 	canManage,
 	readOnly,
 	onCountChange,
+	query = "",
 }: Props) {
 	const confirmDialog = useConfirmDialog();
 	const appName = useAppearanceStore((state) => state.appearance.appName);
@@ -368,6 +372,16 @@ export default function AgentSideChannelCard({
 			connection,
 		})),
 	].sort((a, b) => a.name.localeCompare(b.name));
+	const visibleConnections = sortedConnections.filter((item) =>
+		matchesQuery(
+			query,
+			item.kind,
+			item.name,
+			item.kind === "whatsapp"
+				? item.connection.displayPhoneNumber
+				: item.connection.botName,
+		),
+	);
 
 	useEffect(() => {
 		onCountChange?.(totalConnections);
@@ -426,9 +440,13 @@ export default function AgentSideChannelCard({
 					<div className="px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
 						No side channels configured
 					</div>
+				) : visibleConnections.length === 0 ? (
+					<div className="px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
+						No side channels match “{query.trim()}”
+					</div>
 				) : (
 					<>
-						{sortedConnections.map((item, index) => {
+						{visibleConnections.map((item, index) => {
 							const secondaryLabel =
 								item.kind === "whatsapp"
 									? item.connection.displayPhoneNumber

@@ -6,6 +6,7 @@ import type { Agent } from "@/types/agents";
 import { canConfigureAgent } from "@/types/agents";
 import * as agentsApi from "@/lib/api/resources/agents";
 import type { UnderlineTab } from "@/components/ui/underline-tabs";
+import { SearchBar } from "@/components/ui/search-bar";
 import AgentToolList from "@/app/(protected)/agents/[id]/components/agent-tool-list";
 import AgentSkillList from "@/app/(protected)/agents/[id]/components/agent-skill-list";
 import AgentSubagentList from "@/app/(protected)/agents/[id]/components/agent-subagent-list";
@@ -13,6 +14,13 @@ import { fromAgent } from "@/app/(protected)/agents/lib/agent-form";
 
 export type TriggerResourceKind = "mcp" | "skills" | "subagents" | "sandbox";
 export type TriggerRightTab = "frequency" | TriggerResourceKind;
+
+const SEARCH_PLACEHOLDERS: Record<TriggerResourceKind, string> = {
+	mcp: "Search MCP servers and tools",
+	skills: "Search skills",
+	subagents: "Search subagents",
+	sandbox: "Search sandboxes",
+};
 
 export interface TriggerAgentState {
 	agentId: string | null;
@@ -112,6 +120,12 @@ export default function TriggerResources({
 }: TriggerResourcesProps) {
 	const { agentId, agent, isLoading, failed } = agentState;
 	const agentForm = useMemo(() => (agent ? fromAgent(agent) : null), [agent]);
+	const [search, setSearch] = useState<{
+		kind: TriggerResourceKind;
+		query: string;
+	}>({ kind, query: "" });
+	// Scoped to the tab it was typed in, so switching tabs starts from a clear field.
+	const query = search.kind === kind ? search.query : "";
 	const mcpServers = useMemo(
 		() =>
 			(agentForm?.mcpServers ?? []).map((server) => ({
@@ -184,14 +198,22 @@ export default function TriggerResources({
 			</div>
 		);
 	}
-	if (!agent) return null;
+	if (!agent || !agentForm) return null;
 
-	if (kind === "mcp" || kind === "sandbox") {
-		return (
+	const itemCount = {
+		mcp: agentForm.mcpServers.length,
+		skills: agentForm.skillIds.length,
+		subagents: agentForm.subagentIds.length,
+		sandbox: agentForm.sandboxes.length,
+	}[kind];
+
+	const list =
+		kind === "mcp" || kind === "sandbox" ? (
 			<AgentToolList
 				key={`${agent.id}:${kind}`}
 				agentId={agent.id}
 				readOnly
+				query={query}
 				canToggleDefault={!readOnly}
 				mode="trigger"
 				resourceKind={kind}
@@ -227,17 +249,14 @@ export default function TriggerResources({
 					});
 				}}
 			/>
-		);
-	}
-
-	if (kind === "skills") {
-		return (
+		) : kind === "skills" ? (
 			<div key={agent.id} className="[&>div]:mt-0">
 				<AgentSkillList
 					readOnly
+					query={query}
 					canToggleDefault={!readOnly}
 					mode="trigger"
-					skillIds={agentForm?.skillIds ?? []}
+					skillIds={agentForm.skillIds}
 					disabledByDefaultIds={disabledSkills}
 					fallbackSkills={agent.skills ?? []}
 					runsCode={sandboxes.length > 0}
@@ -250,28 +269,42 @@ export default function TriggerResources({
 					}}
 				/>
 			</div>
+		) : (
+			<div key={agent.id} className="[&>div]:mt-0">
+				<AgentSubagentList
+					readOnly
+					query={query}
+					canToggleDefault={!readOnly}
+					mode="trigger"
+					agentId={agent.id}
+					isSubagent={agent.isSubagent}
+					subagentIds={agentForm.subagentIds}
+					disabledByDefaultIds={disabledSubagents}
+					fallbackSubagents={agent.subagents}
+					onDefaultEnabledChange={(subagentId, enabled) => {
+						onDisabledSubagentIdsChange?.(
+							enabled
+								? disabledSubagents.filter((id) => id !== subagentId)
+								: [...new Set([...disabledSubagents, subagentId])],
+						);
+					}}
+				/>
+			</div>
 		);
-	}
 
 	return (
-		<div key={agent.id} className="[&>div]:mt-0">
-			<AgentSubagentList
-				readOnly
-				canToggleDefault={!readOnly}
-				mode="trigger"
-				agentId={agent.id}
-				isSubagent={agent.isSubagent}
-				subagentIds={agentForm?.subagentIds ?? []}
-				disabledByDefaultIds={disabledSubagents}
-				fallbackSubagents={agent.subagents}
-				onDefaultEnabledChange={(subagentId, enabled) => {
-					onDisabledSubagentIdsChange?.(
-						enabled
-							? disabledSubagents.filter((id) => id !== subagentId)
-							: [...new Set([...disabledSubagents, subagentId])],
-					);
-				}}
-			/>
-		</div>
+		<>
+			{itemCount > 0 && (
+				<SearchBar
+					placeholder={SEARCH_PLACEHOLDERS[kind]}
+					value={query}
+					onChange={(next) => {
+						setSearch({ kind, query: next });
+					}}
+					className="mb-5"
+				/>
+			)}
+			{list}
+		</>
 	);
 }

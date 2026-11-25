@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, type CSSProperties, type ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Folder } from "lucide-react";
+import { GroupExpansionToggle } from "@/components/ui/group-expansion-toggle";
 import type { GroupNode } from "@/lib/groups";
+import { groupTreeStorageKeys, useGroupExpanded } from "@/lib/group-expansion";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
 
 export interface DataTableColumn<T> {
@@ -88,25 +90,7 @@ function DataTableTreeGroup<T>({
 	renderRow: (row: T, depth?: number) => ReactNode;
 	storageKey: string;
 }) {
-	const [expanded, setExpanded] = useState(() => {
-		try {
-			return localStorage.getItem(storageKey) !== "0";
-		} catch {
-			return true;
-		}
-	});
-
-	const toggle = () => {
-		setExpanded((current) => {
-			const next = !current;
-			try {
-				localStorage.setItem(storageKey, next ? "1" : "0");
-			} catch {
-				// The in-session state still works when persistence is unavailable.
-			}
-			return next;
-		});
-	};
+	const [expanded, toggle] = useGroupExpanded(storageKey);
 
 	return (
 		<>
@@ -299,6 +283,13 @@ export function DataTable<T>({
 	className = "",
 }: DataTableProps<T>) {
 	const longPress = useLongPress();
+	const groupStorageKeys =
+		groupTree && groupTree.groups.length > 0
+			? groupTreeStorageKeys(
+					groupTree,
+					(path) => `${groupTree.storageKey}:${path}`,
+				)
+			: [];
 	const gridTemplates = {
 		"--dt-cols": columns
 			.filter((c) => !c.hideBelowMd && !c.hideBelowLg)
@@ -445,6 +436,12 @@ export function DataTable<T>({
 					: ""
 			}${className}`}
 		>
+			{groupStorageKeys.length > 0 && rows.length > 0 && (
+				<GroupExpansionToggle
+					storageKeys={groupStorageKeys}
+					className={`${tableGutterClass} -mb-1`}
+				/>
+			)}
 			<div
 				className={`${gridClass} ${tableGutterClass} shrink-0 pb-2 pt-1`}
 				style={tableWidthStyle}

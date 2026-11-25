@@ -10,6 +10,7 @@ import {
 	AGENT_EDITOR_FORBIDDEN_MESSAGE,
 	useOpenAgentEditor,
 } from "@/hooks/use-open-agent-editor";
+import { matchesQuery } from "@/lib/quick-search";
 import AddAgentSubagentDialog from "./add-agent-subagent-dialog";
 import { Switch } from "@/components/ui/switch";
 
@@ -29,6 +30,8 @@ interface AgentSubagentListProps {
 	/** Asked before a row navigates away to the subagent's page; return false
 	 * to stay (the editor uses it to guard an unsaved draft). */
 	confirmLeave?: () => boolean | Promise<boolean>;
+	/** Quick search: only the subagents matching it are shown. */
+	query?: string;
 }
 
 export default function AgentSubagentList({
@@ -43,6 +46,7 @@ export default function AgentSubagentList({
 	onChange,
 	onDefaultEnabledChange,
 	confirmLeave,
+	query = "",
 }: AgentSubagentListProps) {
 	const allAgents = useAgentsStore((state) => state.agents);
 	const [dialogOpen, setDialogOpen] = useState(false);
@@ -72,6 +76,9 @@ export default function AgentSubagentList({
 	const subagents = subagentIds
 		.map(resolve)
 		.sort((a, b) => a.name.localeCompare(b.name));
+	const visibleSubagents = subagents.filter((sub) =>
+		matchesQuery(query, sub.name, sub.description),
+	);
 
 	const handleRemove = (subagentId: string) => {
 		onChange?.(subagentIds.filter((id) => id !== subagentId));
@@ -123,9 +130,9 @@ export default function AgentSubagentList({
 					</button>
 				)}
 			</div>
-			{subagents.length > 0 ? (
+			{visibleSubagents.length > 0 ? (
 				<div className="flex flex-col gap-2.5">
-					{subagents.map((sub) => {
+					{visibleSubagents.map((sub) => {
 						const isExpanded = expandedIds.has(sub.id);
 						const enabledByDefault = !disabledByDefaultIds.includes(sub.id);
 						return (
@@ -242,7 +249,9 @@ export default function AgentSubagentList({
 				</div>
 			) : (
 				<div className="rounded-[10px] border border-dashed border-input px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
-					No subagents configured
+					{subagents.length > 0
+						? `No subagents match “${query.trim()}”`
+						: "No subagents configured"}
 				</div>
 			)}
 

@@ -8,6 +8,7 @@ import ResourceInUseDialog from "@/components/resource-in-use-dialog";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { useDeleteMcpServer } from "@/hooks/use-delete-mcp-server";
 import { Alert } from "@/components/ui/alert";
+import { onPlainClick } from "@/components/ui/action-button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { GroupPicker } from "@/components/ui/group-picker";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
@@ -713,16 +714,17 @@ export default function MCPServerDetail({
 				) : (
 					isAdmin && (
 						managedDatabaseHref ? (
-							<HeaderButton
-								onClick={() => {
-									router.push(managedDatabaseHref);
-								}}
-							>
+							<HeaderButton href={managedDatabaseHref}>
 								Manage database
 							</HeaderButton>
 						) : (
 							<>
-								<HeaderButton onClick={startEdit}>Edit server</HeaderButton>
+								<HeaderButton
+									href={`/mcp-servers/${server.id}?edit=1`}
+									onClick={onPlainClick(startEdit)}
+								>
+									Edit server
+								</HeaderButton>
 								<DropdownMenu
 									items={[
 										...(isOauth
@@ -959,6 +961,25 @@ export default function MCPServerDetail({
 					) : (
 						<div className="mt-3.5 flex flex-col gap-[18px]">
 							<div className="flex flex-col gap-[7px]">
+								<label htmlFor="mcp-edit-name" className={LABEL_CLASS}>
+									Name
+								</label>
+								<input
+									id="mcp-edit-name"
+									value={form.name}
+									onChange={(e) => {
+										handleFormChange("name", e.target.value);
+									}}
+									aria-invalid={!!fieldErrors.name}
+									className={INPUT_CLASS}
+								/>
+								{fieldErrors.name && (
+									<span className="text-[12.5px] text-destructive">
+										{fieldErrors.name}
+									</span>
+								)}
+							</div>
+							<div className="flex flex-col gap-[7px]">
 								<label htmlFor="mcp-edit-url" className={LABEL_CLASS}>
 									Remote server address{" "}
 									<span className="text-destructive">*</span>
@@ -977,25 +998,6 @@ export default function MCPServerDetail({
 								{fieldErrors.url && (
 									<span className="text-[12.5px] text-destructive">
 										{fieldErrors.url}
-									</span>
-								)}
-							</div>
-							<div className="flex flex-col gap-[7px]">
-								<label htmlFor="mcp-edit-name" className={LABEL_CLASS}>
-									Name
-								</label>
-								<input
-									id="mcp-edit-name"
-									value={form.name}
-									onChange={(e) => {
-										handleFormChange("name", e.target.value);
-									}}
-									aria-invalid={!!fieldErrors.name}
-									className={INPUT_CLASS}
-								/>
-								{fieldErrors.name && (
-									<span className="text-[12.5px] text-destructive">
-										{fieldErrors.name}
 									</span>
 								)}
 							</div>

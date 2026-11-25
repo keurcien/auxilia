@@ -377,12 +377,7 @@ export default function NewSkillSourcePage() {
 				/>
 			)}
 			<SubpageHeader trail={[{ label: "workspace" }, { label: "skills", href: "/skills" }, { label: "connect repository" }]}>
-				<HeaderButton
-					disabled={busy !== null}
-					onClick={() => {
-						router.push("/skills?view=sources");
-					}}
-				>
+				<HeaderButton disabled={busy !== null} href="/skills?view=sources">
 					Cancel
 				</HeaderButton>
 				<HeaderPrimaryButton

@@ -13,6 +13,7 @@ import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { AgentMCPServerForm, AgentSandboxForm } from "../../lib/agent-form";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import * as sandboxesApi from "@/lib/api/resources/sandboxes";
+import { matchesQuery } from "@/lib/quick-search";
 import { THREE_STATE_TOGGLE_TOOLTIP_ID } from "@/components/ui/three-state-toggle";
 
 interface AgentToolListProps {
@@ -62,6 +63,8 @@ interface AgentToolListProps {
 		tools: Record<string, ToolStatus>,
 	) => void;
 	resourceKind?: "all" | "mcp" | "sandbox";
+	/** Quick search: only the servers and sandboxes matching it are shown. */
+	query?: string;
 }
 
 export default function AgentToolList({
@@ -82,6 +85,7 @@ export default function AgentToolList({
 	addDialogOpen,
 	onAddDialogOpenChange,
 	resourceKind = "all",
+	query = "",
 }: AgentToolListProps) {
 	const [allMCPServers, setAllMCPServers] = useState<MCPServer[]>([]);
 	const [allSandboxes, setAllSandboxes] = useState<Sandbox[]>([]);
@@ -116,9 +120,20 @@ export default function AgentToolList({
 			.filter((server) => enabledIds.has(server.id))
 			.sort((a, b) => a.name.localeCompare(b.name));
 	}, [allMCPServers, mcpServers]);
+	const visibleServers = enabledServers.filter((server) =>
+		matchesQuery(
+			query,
+			server.name,
+			server.description,
+			server.url,
+			...Object.keys(
+				mcpServers.find((s) => s.mcpServerId === server.id)?.tools ?? {},
+			),
+		),
+	);
 	const allServersExpanded =
-		enabledServers.length > 0 &&
-		enabledServers.every((server) => expandedServerIds.has(server.id));
+		visibleServers.length > 0 &&
+		visibleServers.every((server) => expandedServerIds.has(server.id));
 
 	const setServerExpanded = (serverId: string, expanded: boolean) => {
 		setExpandedServerIds((current) => {
@@ -138,6 +153,9 @@ export default function AgentToolList({
 			.filter((sandbox) => enabledIds.has(sandbox.id))
 			.sort((a, b) => a.name.localeCompare(b.name));
 	}, [allSandboxes, sandboxes]);
+	const visibleSandboxes = enabledSandboxes.filter((sandbox) =>
+		matchesQuery(query, sandbox.name, sandbox.description, sandbox.provider),
+	);
 
 	const bindingFor = (serverId: string): AgentMCPServerForm =>
 		mcpServers.find((s) => s.mcpServerId === serverId) ?? {
@@ -244,7 +262,7 @@ export default function AgentToolList({
 								{enabledServers.length}
 							</span>
 						</span>
-						{enabledServers.length > 0 && (
+						{visibleServers.length > 0 && (
 							<>
 								<span className="h-3 w-px bg-border" aria-hidden="true" />
 								<button
@@ -254,7 +272,7 @@ export default function AgentToolList({
 										setExpandedServerIds(
 											allServersExpanded
 												? new Set()
-												: new Set(enabledServers.map((server) => server.id)),
+												: new Set(visibleServers.map((server) => server.id)),
 										);
 									}}
 								>
@@ -277,9 +295,9 @@ export default function AgentToolList({
 						</button>
 					)}
 				</div>
-				{enabledServers.length > 0 ? (
+				{visibleServers.length > 0 ? (
 					<div className="flex flex-col gap-2.5">
-						{enabledServers.map((server) => (
+						{visibleServers.map((server) => (
 							<AgentMCPServer
 								key={server.id}
 								agentId={agentId}
@@ -322,7 +340,9 @@ export default function AgentToolList({
 					</div>
 				) : (
 					<div className="rounded-[10px] border border-dashed border-input px-4 py-6 text-center text-[13px] text-meta dark:text-panel-dim">
-						No MCP servers enabled
+						{enabledServers.length > 0
+							? `No MCP servers match “${query.trim()}”`
+							: "No MCP servers enabled"}
 					</div>
 				)}
 			</section>}
@@ -348,9 +368,9 @@ export default function AgentToolList({
 						</button>
 					)}
 				</div>
-				{enabledSandboxes.length > 0 ? (
+				{visibleSandboxes.length > 0 ? (
 					<div className="flex flex-col gap-2.5">
-						{enabledSandboxes.map((sandbox) => {
+						{visibleSandboxes.map((sandbox) => {
 							const binding = sandboxes.find(
 								(candidate) => candidate.sandboxId === sandbox.id,
 							);
@@ -380,7 +400,9 @@ export default function AgentToolList({
 					</div>
 				) : (
 					<div className="rounded-[10px] border border-dashed border-input px-4 py-6 text-center text-[13px] text-meta dark:text-panel-dim">
-						No sandbox enabled
+						{enabledSandboxes.length > 0
+							? `No sandboxes match “${query.trim()}”`
+							: "No sandbox enabled"}
 					</div>
 				)}
 			</section>}

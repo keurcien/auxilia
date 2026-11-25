@@ -14,6 +14,7 @@ import {
 import { MessageResponse } from "@/components/ai-elements/message";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
+import { onPlainClick } from "@/components/ui/action-button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { EmojiPickerPopover } from "@/components/ui/emoji-picker-popover";
 import { GroupPicker } from "@/components/ui/group-picker";
@@ -357,8 +358,13 @@ export default function SkillEditor({
 				]}
 				badge={isDirty ? <UnsavedBadge /> : undefined}
 			>
-				{readOnly && onEdit && (
-					<HeaderPrimaryButton onClick={onEdit}>Edit</HeaderPrimaryButton>
+				{readOnly && onEdit && skill && (
+					<HeaderPrimaryButton
+						href={`/skills/${skill.id}?edit=1`}
+						onClick={onPlainClick(onEdit)}
+					>
+						Edit
+					</HeaderPrimaryButton>
 				)}
 				{readOnly && skill && sourced && (
 					<HeaderReadOnly

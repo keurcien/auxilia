@@ -1,7 +1,7 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
@@ -26,7 +26,6 @@ import { useDeleteSkill } from "./lib/use-delete-skill";
 type View = "library" | "sources";
 
 export default function SkillsPage() {
-	const router = useRouter();
 	const user = useUserStore((state) => state.user);
 	const isAdmin = user?.role === "admin";
 	// Editors curate the library; admins cover editors. Reading and using a
@@ -73,10 +72,6 @@ export default function SkillsPage() {
 					(skill.group ?? "").toLowerCase().includes(term)),
 		);
 	}, [filterTeamIds, scope, search, skills]);
-
-	const handleWrite = () => {
-		router.push("/skills/new");
-	};
 
 	const remove = useDeleteSkill({
 		onError: (err) => {
@@ -140,9 +135,7 @@ export default function SkillsPage() {
 							aria-label="Connect repository"
 							title="Connect repository"
 							className="size-9 justify-center p-0 lg:h-auto lg:w-auto lg:px-[18px] lg:py-[9px]"
-							onClick={() => {
-								router.push("/skills/sources/new");
-							}}
+							href="/skills/sources/new"
 						>
 							<Plus className="size-3.5" />
 							<span className="hidden lg:inline">Connect repository</span>
@@ -153,7 +146,7 @@ export default function SkillsPage() {
 						aria-label="New skill"
 						title="New skill"
 						className="size-9 justify-center p-0 lg:h-auto lg:w-auto lg:px-[18px] lg:py-[9px]"
-						onClick={handleWrite}
+						href="/skills/new"
 					>
 						<Plus className="size-3.5" />
 						<span className="hidden lg:inline">New skill</span>
@@ -199,16 +192,13 @@ export default function SkillsPage() {
 							library, pinned to its content; a sync brings in changes upstream.
 						</p>
 						{isAdmin ? (
-							<button
-								type="button"
-								onClick={() => {
-									router.push("/skills/sources/new");
-								}}
+							<Link
+								href="/skills/sources/new"
 								className="mt-5 inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-3.5 py-[7px] text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
 							>
 								<Plus className="size-3.5" />
 								Connect repository
-							</button>
+							</Link>
 						) : (
 							<p className="mt-4 text-[12.5px] text-meta dark:text-panel-dim">A workspace admin can connect one.</p>
 						)}
@@ -240,25 +230,21 @@ export default function SkillsPage() {
 					)}
 					<div className="mt-5 flex flex-wrap gap-2.5">
 						{isEditor && (
-							<button
-								type="button"
-								onClick={handleWrite}
+							<Link
+								href="/skills/new"
 								className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-primary px-3.5 py-[7px] text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
 							>
 								<Plus className="size-3.5" />
 								Write a skill
-							</button>
+							</Link>
 						)}
 						{isAdmin && (
-							<button
-								type="button"
-								onClick={() => {
-									router.push("/skills/sources/new");
-								}}
+							<Link
+								href="/skills/sources/new"
 								className="inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-input bg-card px-3.5 py-[7px] text-[12.5px] font-semibold text-foreground transition-colors hover:bg-sidebar dark:hover:bg-white/5"
 							>
 								Connect a repository
-							</button>
+							</Link>
 						)}
 					</div>
 				</div>

@@ -14,6 +14,7 @@ import { SearchBar } from "@/components/ui/search-bar";
 import { SkillAvatar } from "@/components/ui/skill-avatar";
 import { SkillRequirementChip } from "@/app/(protected)/skills/components/skill-requirement-chip";
 import { handleKeyboardListNavigation } from "@/lib/keyboard-list-navigation";
+import { matchesQuery } from "@/lib/quick-search";
 import { useSkillsStore } from "@/stores/skills-store";
 import type { AgentSkill } from "@/types/skills";
 import { Switch } from "@/components/ui/switch";
@@ -32,6 +33,8 @@ interface AgentSkillListProps {
 	onDefaultEnabledChange?: (skillId: string, enabled: boolean) => void;
 	/** Edit mode: open the tool picker on its sandbox choice. */
 	onEnableCodeExecution?: () => void;
+	/** Quick search: only the enabled skills matching it are shown. */
+	query?: string;
 }
 
 /**
@@ -55,6 +58,7 @@ export default function AgentSkillList({
 	onChange,
 	onDefaultEnabledChange,
 	onEnableCodeExecution,
+	query = "",
 }: AgentSkillListProps) {
 	const skills = useSkillsStore((state) => state.skills);
 	const fetchSkills = useSkillsStore((state) => state.fetchSkills);
@@ -80,6 +84,9 @@ export default function AgentSkillList({
 	const enabled = skillIds
 		.map(resolve)
 		.sort((a, b) => a.name.localeCompare(b.name));
+	const visible = enabled.filter((skill) =>
+		matchesQuery(query, skill.name, skill.description),
+	);
 
 	const candidates = useMemo(() => {
 		const taken = new Set(skillIds);
@@ -118,9 +125,9 @@ export default function AgentSkillList({
 				)}
 			</div>
 
-			{enabled.length > 0 ? (
+			{visible.length > 0 ? (
 				<div className="flex flex-col gap-2.5">
-					{enabled.map((skill) => {
+					{visible.map((skill) => {
 						const scriptsInactive = skill.scriptCount > 0 && !runsCode;
 						const isExpanded = expandedIds.has(skill.id);
 						const enabledByDefault = !disabledByDefaultIds.includes(skill.id);
@@ -256,7 +263,9 @@ export default function AgentSkillList({
 				</div>
 			) : (
 				<div className="rounded-[10px] border border-dashed border-input px-4 py-8 text-center text-[13px] text-meta dark:text-panel-dim">
-					No skills enabled
+					{enabled.length > 0
+						? `No skills match “${query.trim()}”`
+						: "No skills enabled"}
 				</div>
 			)}
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import AgentList from "@/app/(protected)/agents/components/agent-list";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
@@ -23,9 +22,14 @@ import type { Agent } from "@/types/agents";
 const VIEW_MODE_STORAGE_KEY = "agents:view-mode";
 
 export default function AgentsPage() {
-	const router = useRouter();
 	const user = useUserStore((state) => state.user);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
+	// Members can't create agents: they get the explanation dialog instead of a link.
+	const createAgentHref =
+		user && user.role !== "member" ? "/agents/new" : undefined;
+	const handleCreateAgentClick = () => {
+		if (user?.role === "member") setErrorDialogOpen(true);
+	};
 	const [search, setSearch] = useQueryParamState("q");
 	const [viewParam, setView] = useQueryParamState("view", "all");
 	const [teamParam, setTeamParam] = useQueryParamState("teams");
@@ -51,15 +55,6 @@ export default function AgentsPage() {
 			});
 	}, []);
 
-	const handleCreateAgent = () => {
-		if (!user) return;
-		if (user.role === "member") {
-			setErrorDialogOpen(true);
-			return;
-		}
-		router.push("/agents/new");
-	};
-
 	return (
 		<WorkspacePage
 			slug="agents"
@@ -79,9 +74,8 @@ export default function AgentsPage() {
 					// Until /auth/me resolves the role check can't run — a click
 					// would silently no-op, so keep the button disabled.
 					disabled={!user}
-					onClick={() => {
-						handleCreateAgent();
-					}}
+					href={createAgentHref}
+					onClick={handleCreateAgentClick}
 				>
 					<Plus className="size-3.5" />
 					<span className="hidden lg:inline">New agent</span>
@@ -137,9 +131,8 @@ export default function AgentsPage() {
 				onClearSearch={() => {
 					setSearch("");
 				}}
-				onCreateAgent={() => {
-					handleCreateAgent();
-				}}
+				createAgentHref={createAgentHref}
+				onCreateAgent={handleCreateAgentClick}
 			/>
 		</WorkspacePage>
 	);

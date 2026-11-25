@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { ChevronRight, Folder } from "lucide-react";
+import { GroupExpansionToggle } from "@/components/ui/group-expansion-toggle";
 import type { GroupNode, GroupTree } from "@/lib/groups";
+import { groupTreeStorageKeys, useGroupExpanded } from "@/lib/group-expansion";
 import { cn } from "@/lib/utils";
 
 function CardGrid<T>({
@@ -34,25 +36,7 @@ function GroupedCardNode<T>({
 	renderItem: (item: T, index: number) => ReactNode;
 	storageKey: string;
 }) {
-	const [expanded, setExpanded] = useState(() => {
-		try {
-			return localStorage.getItem(storageKey) !== "0";
-		} catch {
-			return true;
-		}
-	});
-
-	const toggle = () => {
-		setExpanded((current) => {
-			const next = !current;
-			try {
-				localStorage.setItem(storageKey, next ? "1" : "0");
-			} catch {
-				// The in-session state still works when persistence is unavailable.
-			}
-			return next;
-		});
-	};
+	const [expanded, toggle] = useGroupExpanded(storageKey);
 
 	return (
 		<section className="animate-in fade-in duration-300">
@@ -114,6 +98,10 @@ export function GroupedCardTree<T>({
 	}
 	return (
 		<>
+			<GroupExpansionToggle
+				storageKeys={groupTreeStorageKeys(tree, (path) => `${storageKey}:${path}`)}
+				className="mb-1"
+			/>
 			{tree.groups.map((group) => (
 				<GroupedCardNode
 					key={group.path}

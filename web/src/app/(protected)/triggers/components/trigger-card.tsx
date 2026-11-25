@@ -157,9 +157,7 @@ export default function TriggerCard({
 							{
 								label: "Edit",
 								icon: <Pencil />,
-								onClick: () => {
-									router.push(`/triggers/${trigger.id}?edit=1`);
-								},
+								href: `/triggers/${trigger.id}?edit=1`,
 							},
 							...(canCreate
 								? [

@@ -14,6 +14,7 @@ import {
 	type BulkFailure,
 } from "@/components/ui/bulk-confirm-dialog";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { ActionButton } from "@/components/ui/action-button";
 import { Agent } from "@/types/agents";
 import AgentCard from "@/app/(protected)/agents/components/agent-card";
 import AgentTable from "@/app/(protected)/agents/components/agent-table";
@@ -38,7 +39,12 @@ function EmptyState({
 	icon: React.ReactNode;
 	title: string;
 	subtitle: string;
-	action?: { label: string; icon: React.ReactNode; onClick: () => void };
+	action?: {
+		label: string;
+		icon: React.ReactNode;
+		href?: string;
+		onClick: () => void;
+	};
 }) {
 	return (
 		<div className="flex flex-col items-center justify-center py-16 px-8 animate-in fade-in slide-in-from-bottom-2 duration-400">
@@ -58,13 +64,14 @@ function EmptyState({
 			</div>
 
 			{action && (
-				<button
+				<ActionButton
+					href={action.href}
 					onClick={action.onClick}
 					className="flex items-center gap-1.5 px-5.5 py-2.5 rounded-full border-[1.5px] border-[#E0E8E4] dark:border-white/10 bg-white dark:bg-transparent font-[family-name:var(--font-dm-sans)] text-[13.5px] font-semibold text-[#1E2D28] dark:text-foreground cursor-pointer transition-all hover:bg-[#F8FAF9] dark:hover:bg-white/5 hover:-translate-y-0.5"
 				>
 					{action.icon}
 					{action.label}
-				</button>
+				</ActionButton>
 			)}
 		</div>
 	);
@@ -223,6 +230,8 @@ interface AgentListProps {
 	onArchivedAgentsChange: (agents: Agent[]) => void;
 	onClearSearch?: () => void;
 	onCreateAgent?: () => void;
+	/** Where "Create an agent" links to when the viewer may create one. */
+	createAgentHref?: string;
 }
 
 export default function AgentList({
@@ -235,6 +244,7 @@ export default function AgentList({
 	onArchivedAgentsChange,
 	onClearSearch,
 	onCreateAgent,
+	createAgentHref,
 }: AgentListProps) {
 	const archived = view === "archived";
 	// Live views read the shared store (already fetched by the sidebar), so
@@ -414,6 +424,7 @@ export default function AgentList({
 						? {
 								label: "Create an agent",
 								icon: <Plus className="size-[15px] text-[#4CA882]" />,
+								href: createAgentHref,
 								onClick: onCreateAgent,
 							}
 						: undefined

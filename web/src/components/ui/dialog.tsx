@@ -6,6 +6,10 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import {
+	ActionButton,
+	type ActionButtonProps,
+} from "@/components/ui/action-button";
 
 function Dialog({
 	...props
@@ -156,9 +160,9 @@ function DialogButton({
 	variant,
 	type = "button",
 	...props
-}: React.ComponentProps<"button"> & VariantProps<typeof dialogButtonVariants>) {
+}: ActionButtonProps & VariantProps<typeof dialogButtonVariants>) {
 	return (
-		<button
+		<ActionButton
 			data-slot="dialog-button"
 			type={type}
 			className={cn(dialogButtonVariants({ variant }), className)}

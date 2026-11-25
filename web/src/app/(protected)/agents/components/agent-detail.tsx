@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Agent } from "@/types/agents";
 import AgentEditor, {
 	type CapabilityTab,
@@ -10,6 +11,8 @@ import { useAgentsStore } from "@/stores/agents-store";
 
 interface AgentDetailProps {
 	agent: Agent;
+	/** `?edit=1` from an Edit link; ignored when the viewer can't edit. */
+	startInEdit?: boolean;
 }
 
 /**
@@ -17,7 +20,11 @@ interface AgentDetailProps {
  * instructions, disabled inputs) with an explicit Edit button that flips
  * into the editable draft. Save/Discard return to read mode.
  */
-export default function AgentDetail({ agent }: AgentDetailProps) {
+export default function AgentDetail({
+	agent,
+	startInEdit = false,
+}: AgentDetailProps) {
+	const router = useRouter();
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 
 	const storeAgent = useAgentsStore((state) =>
@@ -47,7 +54,6 @@ export default function AgentDetail({ agent }: AgentDetailProps) {
 		};
 	}, [storeAgent, agent]);
 
-	const [mode, setMode] = useState<"read" | "edit">("read");
 	const [tab, setTab] = useState<EditorTab>("instructions");
 	const [capabilityTab, setCapabilityTab] = useState<CapabilityTab>("mcp");
 
@@ -61,6 +67,14 @@ export default function AgentDetail({ agent }: AgentDetailProps) {
 		liveAgent.currentUserPermission === "owner" ||
 		liveAgent.currentUserPermission === "admin" ||
 		liveAgent.currentUserPermission === "editor";
+
+	const [mode, setMode] = useState<"read" | "edit">(
+		startInEdit && canEditAgent ? "edit" : "read",
+	);
+	const leaveEdit = () => {
+		setMode("read");
+		if (startInEdit) router.replace(`/agents/${agent.id}`);
+	};
 
 	return (
 		<AgentEditor
@@ -80,12 +94,8 @@ export default function AgentDetail({ agent }: AgentDetailProps) {
 						}
 					: undefined
 			}
-			onSaved={() => {
-				setMode("read");
-			}}
-			onCancel={() => {
-				setMode("read");
-			}}
+			onSaved={leaveEdit}
+			onCancel={leaveEdit}
 		/>
 	);
 }

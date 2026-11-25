@@ -760,7 +760,7 @@ def test_route_admits_the_level_it_asks_for(client, method, path, at_least):
     other than 403 means the gate let the request through."""
     agent_service = _service_stub(at_least)
     mcp_service = MagicMock()
-    mcp_service.create_or_update = AsyncMock(side_effect=NotFoundError("stub"))
+    agent_service.attach_mcp_server = AsyncMock(side_effect=NotFoundError("stub"))
     mcp_service.update = AsyncMock(side_effect=NotFoundError("stub"))
     mcp_service.delete = AsyncMock(side_effect=NotFoundError("stub"))
     mcp_service.sync_tools = AsyncMock(side_effect=NotFoundError("stub"))

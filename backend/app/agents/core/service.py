@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Literal, overload
 from uuid import UUID, uuid4
 
@@ -26,6 +28,7 @@ from app.agents.schemas import (
     AgentConfig,
     AgentCreateDB,
     AgentListResponse,
+    AgentMCPServerCreate,
     AgentMCPServerListResponse,
     AgentMCPServerResponse,
     AgentOwnerInfo,
@@ -1358,6 +1361,43 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
         await self._stage_agents_changed()
         return saved
 
+    async def set_scope(
+        self,
+        agent_id: UUID,
+        visibility: ResourceVisibility,
+        team_ids: list[UUID],
+        *,
+        user_id: UUID,
+        user_role: WorkspaceRole | None = None,
+        user_team_id: UUID | None = None,
+    ) -> None:
+        """Change who can use the agent, with the config save's scope checks."""
+        await self.require_permission(
+            agent_id,
+            at_least=EffectivePermission.editor,
+            action="change who can use this agent",
+            user_id=user_id,
+            user_role=user_role,
+            user_team_id=user_team_id,
+        )
+        if await self.repository.get_scoped_for_update(agent_id) is None:
+            raise NotFoundError(self.not_found_message)
+        validate_visibility(visibility, team_ids)
+        await self._validate_team_ids(team_ids)
+        candidate_team_ids = set(team_ids)
+        await self._validate_trigger_dependencies_for_scope(
+            agent_id, visibility, candidate_team_ids
+        )
+        await self._validate_subagent_dependencies_for_scope(
+            agent_id, visibility, candidate_team_ids
+        )
+        await self._validate_bound_dependencies_for_scope(
+            agent_id, visibility, candidate_team_ids
+        )
+        await self.repository.set_teams(agent_id, team_ids)
+        await self.repository.update_by_id(agent_id, AgentPatch(visibility=visibility))
+        await self._stage_agents_changed()
+
     # -- Subagents -------------------------------------------------------------
     #
     # A binding of the aggregate, like permissions and teams: the link rows carry
@@ -1521,6 +1561,73 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
             raise NotFoundError("Subagent not found")
         await self.repository.delete_subagent_link(link)
         await self._stage_agents_changed()
+
+    # -- Single attaches --------------------------------------------------------
+    #
+    # Adding one resource to an agent outside the config save (e.g. right after
+    # creating it). Like the config save, they keep existing triggers of the
+    # affected graphs from silently gaining the new resource. The caller's
+    # editor access to the agent is checked by the route.
+
+    @asynccontextmanager
+    async def _preserving_trigger_resources(
+        self, agent_id: UUID
+    ) -> AsyncIterator[None]:
+        trigger_resources = TriggerResourceService(
+            self.db,
+            self.workspace_id,
+            agents=self.repository,
+            skills=self.skill_service.repository,
+        )
+        snapshot = await trigger_resources.capture_affected(agent_id)
+        yield
+        await trigger_resources.preserve_additions(snapshot)
+
+    async def attach_mcp_server(
+        self,
+        agent_id: UUID,
+        server_id: UUID,
+        data: AgentMCPServerCreate,
+        user_id: UUID,
+    ) -> AgentMCPServerDB:
+        async with self._preserving_trigger_resources(agent_id):
+            return await self.mcp_server_service.create_or_update(
+                agent_id, server_id, data, str(user_id)
+            )
+
+    async def attach_subagent(
+        self,
+        supervisor_id: UUID,
+        subagent_id: UUID,
+        *,
+        enabled_by_default: bool,
+        user_id: UUID,
+        user_role: WorkspaceRole | None = None,
+        user_team_id: UUID | None = None,
+    ) -> AgentSubagentDB:
+        async with self._preserving_trigger_resources(supervisor_id):
+            return await self.create_subagent(
+                supervisor_id,
+                subagent_id,
+                enabled_by_default=enabled_by_default,
+                user_id=user_id,
+                user_role=user_role,
+                user_team_id=user_team_id,
+            )
+
+    async def attach_skill(
+        self, agent_id: UUID, skill_id: UUID, *, enabled_by_default: bool
+    ) -> AgentSkillResponse:
+        """Idempotent: an already-enabled skill keeps its current default."""
+        if await self.repository.get_scoped_for_update(agent_id) is None:
+            raise NotFoundError(self.not_found_message)
+        async with self._preserving_trigger_resources(agent_id):
+            await self.skill_service.add_for_agent(
+                agent_id, skill_id, enabled_by_default=enabled_by_default
+            )
+        await self._stage_agents_changed()
+        attached = await self.skill_service.list_for_agent(agent_id)
+        return next(skill for skill in attached if skill.id == skill_id)
 
     async def set_subagents(
         self,

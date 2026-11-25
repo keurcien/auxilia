@@ -213,6 +213,23 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
         await self._stage_skills_changed()
         return response
 
+    async def set_scope(
+        self,
+        skill_id: UUID,
+        visibility: ResourceVisibility,
+        team_ids: list[UUID],
+        user: UserDB,
+    ) -> None:
+        """Change who can use the skill without touching its content."""
+        row = await self._editable(skill_id, user)
+        await self._validate_teams(team_ids)
+        validate_visibility(visibility, team_ids)
+        await self._ensure_bound_agent_scopes(row, visibility, team_ids)
+        row.visibility = visibility
+        await self.repository.set_team_ids(row.id, team_ids)
+        await self._flush(row)
+        await self._stage_skills_changed()
+
     async def get_image(self, skill_id: UUID, user: UserDB) -> SkillImageDB:
         row = await self.repository.get_scoped(skill_id)
         if row is None:
@@ -544,6 +561,25 @@ class SkillService(BaseService[SkillDB, SkillRepository]):
                     )
         if changed:
             await self._stage_skills_changed()
+
+    async def add_for_agent(
+        self, agent_id: UUID, skill_id: UUID, *, enabled_by_default: bool
+    ) -> None:
+        """Enable one more skill on an agent, through `set_for_agent` so the
+        scope and grantee checks are the config save's."""
+        current_links = await self.repository.list_attached_links(agent_id)
+        if any(link.skill_id == skill_id for link in current_links):
+            return
+        disabled = [
+            link.skill_id for link in current_links if not link.enabled_by_default
+        ]
+        if not enabled_by_default:
+            disabled.append(skill_id)
+        await self.set_for_agent(
+            agent_id,
+            [*(link.skill_id for link in current_links), skill_id],
+            disabled_by_default=disabled,
+        )
 
 
 def _reject_files(data: SkillSave) -> None:

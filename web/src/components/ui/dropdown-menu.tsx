@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import Link from "next/link";
 import { Check, EllipsisVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,8 @@ type DropdownItem =
 			destructive?: boolean;
 			separator?: false;
 			onClick?: () => void;
+			/** Renders the item as a link, so it can be opened in a new tab. */
+			href?: string;
 			active?: boolean;
 	  }
 	| { separator: true }
@@ -86,21 +89,18 @@ export function DropdownMenu({
 							);
 						}
 
-						return (
-							<DropdownMenuPrimitive.Item
-								key={i}
-								onSelect={item.onClick}
-								className={cn(
-									"flex cursor-pointer select-none items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[13px] font-medium whitespace-nowrap outline-none transition-colors",
-									item.destructive
-										? "text-[#B04A3A] focus:bg-[#FBEFED] dark:focus:bg-[#B04A3A]/10"
-										: "text-ink focus:bg-hover dark:text-panel-button dark:focus:bg-white/5",
-									item.active &&
-										!item.destructive &&
-										"bg-petrol-tint dark:bg-white/10",
-									itemClassName,
-								)}
-							>
+						const itemClass = cn(
+							"flex cursor-pointer select-none items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-[13px] font-medium whitespace-nowrap outline-none transition-colors",
+							item.destructive
+								? "text-[#B04A3A] focus:bg-[#FBEFED] dark:focus:bg-[#B04A3A]/10"
+								: "text-ink focus:bg-hover dark:text-panel-button dark:focus:bg-white/5",
+							item.active &&
+								!item.destructive &&
+								"bg-petrol-tint dark:bg-white/10",
+							itemClassName,
+						);
+						const content = (
+							<>
 								{item.icon && (
 									<span
 										className={cn(
@@ -126,6 +126,27 @@ export function DropdownMenu({
 										strokeWidth={3}
 									/>
 								)}
+							</>
+						);
+						if (item.href) {
+							return (
+								<DropdownMenuPrimitive.Item
+									key={i}
+									asChild
+									onSelect={item.onClick}
+									className={itemClass}
+								>
+									<Link href={item.href}>{content}</Link>
+								</DropdownMenuPrimitive.Item>
+							);
+						}
+						return (
+							<DropdownMenuPrimitive.Item
+								key={i}
+								onSelect={item.onClick}
+								className={itemClass}
+							>
+								{content}
 							</DropdownMenuPrimitive.Item>
 						);
 					})}

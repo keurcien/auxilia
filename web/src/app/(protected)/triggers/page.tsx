@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import TriggerList from "@/app/(protected)/triggers/components/trigger-list";
 import { ResourceScopeFilterDropdown } from "@/components/ui/resource-scope-filter";
@@ -18,7 +17,6 @@ import { useTriggersStore } from "@/stores/triggers-store";
 import { useUserStore } from "@/stores/user-store";
 
 export default function TriggersPage() {
-	const router = useRouter();
 	const canCreate = useUserStore(
 		(state) => state.user !== null && state.user.role !== "member",
 	);
@@ -39,10 +37,6 @@ export default function TriggersPage() {
 	const activeCount = triggers.filter((trigger) => trigger.isActive).length;
 	const pausedCount = triggers.length - activeCount;
 
-	const handleCreate = () => {
-		router.push("/triggers/new");
-	};
-
 	return (
 		<WorkspacePage
 			slug="triggers"
@@ -60,9 +54,7 @@ export default function TriggersPage() {
 					aria-label="New trigger"
 					title="New trigger"
 					className="size-9 justify-center p-0 lg:h-auto lg:w-auto lg:px-[18px] lg:py-[9px]"
-					onClick={() => {
-						handleCreate();
-					}}
+					href="/triggers/new"
 				>
 					<Plus className="size-3.5" />
 					<span className="hidden lg:inline">New trigger</span>
@@ -97,7 +89,6 @@ export default function TriggersPage() {
 			<TriggerList
 				view={view}
 				mode={viewMode}
-				onCreate={handleCreate}
 				canCreate={canCreate}
 				search={search}
 				scope={scope}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import MCPServerTable from "@/app/(protected)/mcp-servers/components/mcp-server-table";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
@@ -17,7 +16,6 @@ import type { ResourceScopeFilter } from "@/lib/resource-scope-filter";
 import { useUserStore } from "@/stores/user-store";
 
 export default function MCPServersPage() {
-	const router = useRouter();
 	const user = useUserStore((state) => state.user);
 	const [search, setSearch] = useQueryParamState("q");
 	const [scopeParam, setScopeParam] = useQueryParamState("scope", "all");
@@ -31,15 +29,6 @@ export default function MCPServersPage() {
 	const filterTeamIds = teamParam.split(",").filter(Boolean);
 	const [errorDialogOpen, setErrorDialogOpen] = useState(false);
 	const [viewMode, setViewMode] = usePersistedViewMode("mcp-servers:view-mode");
-
-	const handleAddServer = () => {
-		if (!user) return;
-		if (user.role !== "admin") {
-			setErrorDialogOpen(true);
-			return;
-		}
-		router.push("/mcp-servers/add");
-	};
 
 	return (
 		<WorkspacePage
@@ -60,8 +49,9 @@ export default function MCPServersPage() {
 					// Until /auth/me resolves the role check can't run, so keep it
 					// disabled rather than letting a click silently do nothing.
 					disabled={!user}
+					href={user?.role === "admin" ? "/mcp-servers/add" : undefined}
 					onClick={() => {
-						handleAddServer();
+						if (user && user.role !== "admin") setErrorDialogOpen(true);
 					}}
 				>
 					<Plus className="size-3.5" />

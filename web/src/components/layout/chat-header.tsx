@@ -22,7 +22,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
 	type ChatHeaderProject,
 	useChatHeaderStore,
@@ -730,7 +729,6 @@ function HeaderBar({
  * "No access" dialog when the viewer is too weak).
  */
 export function ChatHeader() {
-	const router = useRouter();
 	const {
 		agentId,
 		agentName,
@@ -752,15 +750,12 @@ export function ChatHeader() {
 					<AlarmClock className="size-3.5 text-petrol dark:text-panel-terminal" />
 				</div>
 				{triggerId ? (
-					<button
-						type="button"
-						onClick={() => {
-							router.push(`/triggers/${triggerId}`);
-						}}
+					<Link
+						href={`/triggers/${triggerId}`}
 						className="min-w-0 cursor-pointer truncate rounded-sm font-semibold leading-none text-foreground transition-colors hover:text-petrol focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol/40 dark:hover:text-panel-terminal"
 					>
 						{triggerName}
-					</button>
+					</Link>
 				) : (
 					<span className="min-w-0 truncate font-semibold leading-none text-foreground">
 						{triggerName}

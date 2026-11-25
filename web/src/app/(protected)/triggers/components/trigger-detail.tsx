@@ -32,6 +32,7 @@ import { AgentPicker } from "@/components/editor/agent-picker";
 import { ModelPickerChip } from "@/components/editor/model-picker-chip";
 import { EffortPickerChip } from "@/components/editor/effort-picker-chip";
 import { useTriggerDefaultModel } from "@/app/(protected)/triggers/components/use-trigger-default-model";
+import { onPlainClick } from "@/components/ui/action-button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
@@ -213,9 +214,10 @@ export default function TriggerDetail({
 					{isRunning ? "Starting…" : "Run now"}
 				</HeaderButton>}
 				{liveTrigger.canManage && <HeaderPrimaryButton
-					onClick={() => {
+					href={`/triggers/${liveTrigger.id}?edit=1`}
+					onClick={onPlainClick(() => {
 						setMode("edit");
-					}}
+					})}
 				>
 					Edit
 				</HeaderPrimaryButton>}

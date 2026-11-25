@@ -84,6 +84,5 @@ def audience_contains(
         )
     if child_visibility == ResourceVisibility.workspace:
         return True
-    if child_visibility == ResourceVisibility.teams:
-        return False
+    # A personal parent's audience is its owner, who always sees what they own.
     return parent_owner_id == child_owner_id

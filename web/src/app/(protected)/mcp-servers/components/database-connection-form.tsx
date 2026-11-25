@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { AddToAgentsDialog } from "@/components/editor/add-to-agents-dialog";
 import { EditorSection } from "@/components/editor/editor-section";
 import {
 	HeaderButton,
@@ -220,6 +221,7 @@ export function DatabaseConnectionForm({
 	const [connection, setConnection] = useState(initialConnection);
 	const [form, setForm] = useState(() => initialState(initialConnection));
 	const [saving, setSaving] = useState(false);
+	const [created, setCreated] = useState<DatabaseConnection | null>(null);
 	const [deleting, setDeleting] = useState(false);
 	const [reconciling, setReconciling] = useState(false);
 	const [imageFile, setImageFile] = useState<File | null>(null);
@@ -238,7 +240,7 @@ export function DatabaseConnectionForm({
 		: "/mcp-servers";
 	const invalidTeamSelection =
 		form.visibility === "teams" && form.teamIds.length === 0;
-	const mutating = saving || deleting || reconciling;
+	const mutating = saving || deleting || reconciling || created !== null;
 	const selectedEngine = ENGINE_OPTIONS.find(
 		(option) => option.value === form.engine,
 	);
@@ -512,8 +514,8 @@ export function DatabaseConnectionForm({
 			} else {
 				const created = await createDatabaseConnection(payload);
 				toast.success(`${created.name} added to the workspace`);
-				router.replace(`/mcp-servers/database/${created.id}`);
 				refreshServerList();
+				setCreated(created);
 			}
 		} catch (error) {
 			toast.error(
@@ -624,12 +626,7 @@ export function DatabaseConnectionForm({
 					{ label: isEditing ? connection.name : "new" },
 				]}
 			>
-				<HeaderButton
-					disabled={mutating}
-					onClick={() => {
-						router.push(cancelHref);
-					}}
-				>
+				<HeaderButton disabled={mutating} href={cancelHref}>
 					Cancel
 				</HeaderButton>
 				{connection?.status === "error" ? (
@@ -1158,6 +1155,21 @@ export function DatabaseConnectionForm({
 								) : null}
 				</div>
 			</form>
+			{created && (
+				<AddToAgentsDialog
+					key={created.id}
+					kind="mcpServer"
+					resource={{
+						id: created.mcpServerId,
+						name: created.name,
+						visibility: created.visibility,
+						teamIds: created.teamIds,
+					}}
+					onDone={() => {
+						router.replace(`/mcp-servers/database/${created.id}`);
+					}}
+				/>
+			)}
 		</div>
 	);
 }

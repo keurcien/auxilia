@@ -21,6 +21,7 @@ import AgentSideChannelCard from "../[id]/components/agent-side-channel-card";
 import { GroupPicker } from "@/components/ui/group-picker";
 import { VisibilityPicker } from "@/components/ui/visibility-picker";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
+import { useScopeChangePlanner } from "@/components/sharing/scope-plan-dialog";
 import AgentLangfusePanel from "./agent-langfuse-panel";
 import AgentPermissionsPanel from "./agent-permissions-panel";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -30,9 +31,11 @@ import { useSkillsStore } from "@/stores/skills-store";
 import { useModelsStore } from "@/stores/models-store";
 import { useUserStore } from "@/stores/user-store";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
+import { onPlainClick } from "@/components/ui/action-button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { EmojiPickerPopover } from "@/components/ui/emoji-picker-popover";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
+import { SearchBar } from "@/components/ui/search-bar";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { groupOptions } from "@/lib/groups";
@@ -79,6 +82,14 @@ const TOOL_DISCOVERY_LABELS: Record<ToolDiscoveryMode, string> = {
 	local: "Precision",
 };
 
+const CAPABILITY_SEARCH_PLACEHOLDERS: Record<CapabilityTab, string> = {
+	mcp: "Search MCP servers and tools",
+	skills: "Search skills",
+	subagents: "Search subagents",
+	slack: "Search side channels",
+	sandbox: "Search sandboxes",
+};
+
 interface AgentEditorProps {
 	/** Undefined = create mode (`/agents/new` draft). */
 	agent?: Agent;
@@ -108,6 +119,7 @@ export default function AgentEditor({
 }: AgentEditorProps) {
 	const router = useRouter();
 	const confirmDialog = useConfirmDialog();
+	const { requestScopeChange, dialog: scopePlanDialog } = useScopeChangePlanner();
 	const updateAgent = useAgentsStore((state) => state.updateAgent);
 	const createAgent = useAgentsStore((state) => state.createAgent);
 	const saveAgentConfig = useAgentsStore((state) => state.saveAgentConfig);
@@ -179,6 +191,10 @@ export default function AgentEditor({
 	const [tab, setTab] = useState<EditorTab>(initialTab);
 	const [capabilityTab, setCapabilityTab] =
 		useState<CapabilityTab>(initialCapabilityTab);
+	const [capabilitySearch, setCapabilitySearch] = useState<{
+		tab: CapabilityTab;
+		query: string;
+	}>({ tab: initialCapabilityTab, query: "" });
 	const [sideChannelCount, setSideChannelCount] = useState(0);
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -317,6 +333,19 @@ export default function AgentEditor({
 		setIsSaving(true);
 		setError(null);
 		try {
+			const scopeChanged =
+				form.visibility !== initialForm.visibility ||
+				[...form.teamIds].sort().join(",") !==
+					[...initialForm.teamIds].sort().join(",");
+			if (agent && scopeChanged) {
+				const outcome = await requestScopeChange({
+					kind: "agent",
+					id: agent.id,
+					visibility: form.visibility,
+					teamIds: form.teamIds,
+				});
+				if (outcome === "cancelled") return;
+			}
 			let imageUploadFailed = false;
 			let saved: Agent = agent
 				? await saveAgentConfig(agent.id, toPayload(form))
@@ -543,11 +572,18 @@ export default function AgentEditor({
 	)
 		? capabilityTab
 		: "mcp";
+	const activeCapabilityCount =
+		capabilityTabs.find((candidate) => candidate.key === activeCapabilityTab)
+			?.count ?? 0;
+	// Scoped to the tab it was typed in, so switching tabs starts from a clear field.
+	const capabilityQuery =
+		capabilitySearch.tab === activeCapabilityTab ? capabilitySearch.query : "";
 
 	const renderToolList = (resourceKind: "mcp" | "sandbox") => (
 		<AgentToolList
 			agentId={agent?.id}
 			readOnly={readOnly}
+			query={capabilityQuery}
 			canEdit={canEditAgent}
 			mcpServers={form.mcpServers}
 			sandboxes={form.sandboxes}
@@ -597,12 +633,23 @@ export default function AgentEditor({
 				}}
 				className="border-b border-border"
 			/>
+			{activeCapabilityCount > 0 && (
+				<SearchBar
+					placeholder={CAPABILITY_SEARCH_PLACEHOLDERS[activeCapabilityTab]}
+					value={capabilityQuery}
+					onChange={(query) => {
+						setCapabilitySearch({ tab: activeCapabilityTab, query });
+					}}
+					className="mt-4"
+				/>
+			)}
 			<div className="min-h-0 pt-5">
 				{activeCapabilityTab === "mcp" && renderToolList("mcp")}
 				{activeCapabilityTab === "skills" && (
 					<div className="[&>div]:mt-0">
 						<AgentSkillList
 							readOnly={readOnly}
+							query={capabilityQuery}
 							skillIds={form.skillIds}
 							disabledByDefaultIds={form.disabledSkillIdsByDefault}
 							fallbackSkills={agent?.skills ?? []}
@@ -648,6 +695,7 @@ export default function AgentEditor({
 							canManage={canManageAgent}
 							readOnly={readOnly}
 							onCountChange={setSideChannelCount}
+							query={capabilityQuery}
 						/>
 					</div>
 				)}
@@ -655,6 +703,7 @@ export default function AgentEditor({
 					<div className="[&>div]:mt-0">
 						<AgentSubagentList
 							readOnly={readOnly}
+							query={capabilityQuery}
 							agentId={agent?.id ?? ""}
 							isSubagent={agent?.isSubagent ?? false}
 							subagentIds={form.subagentIds}
@@ -705,6 +754,7 @@ export default function AgentEditor({
 
 	return (
 		<div className="flex h-svh min-w-0 flex-1 flex-col bg-background animate-in fade-in duration-300">
+			{scopePlanDialog}
 			{/* Header bar */}
 			<header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border pl-14 pr-4 md:px-7">
 				<span className="min-w-0 truncate text-[11.5px] text-meta dark:text-panel-dim">
@@ -766,26 +816,23 @@ export default function AgentEditor({
 						</button>
 					)}
 					{agent && (
-						<button
-							type="button"
+						<Link
+							href={`/agents/${agent.id}/chat`}
 							title="Opens the real chat with the last saved configuration"
-							onClick={() => {
-								router.push(`/agents/${agent.id}/chat`);
-							}}
 							className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-input bg-card px-4 py-2 text-[13px] font-semibold text-petrol transition-colors hover:border-border-hover dark:border-white/10 dark:bg-white/[0.03] dark:text-panel-terminal dark:hover:border-white/20"
 						>
 							<Play className="size-3" fill="currentColor" />
 							Test in chat
-						</button>
+						</Link>
 					)}
-					{readOnly && onEdit && (
-						<button
-							type="button"
-							onClick={onEdit}
+					{readOnly && onEdit && agent && (
+						<Link
+							href={`/agents/${agent.id}?edit=1`}
+							onClick={onPlainClick(onEdit)}
 							className="cursor-pointer rounded-[7px] bg-petrol px-[18px] py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
 						>
 							Edit
-						</button>
+						</Link>
 					)}
 					{!readOnly && (
 						<>
@@ -821,9 +868,7 @@ export default function AgentEditor({
 								{
 									label: "View thread history",
 									icon: <History />,
-									onClick: () => {
-										router.push(`/agents/${agent.id}/threads`);
-									},
+									href: `/agents/${agent.id}/threads`,
 								},
 								{
 									label: "Duplicate",
