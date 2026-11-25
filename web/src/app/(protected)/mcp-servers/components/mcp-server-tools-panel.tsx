@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CircleAlert, ExternalLink, RefreshCw, Wrench } from "lucide-react";
+import {
+	CircleAlert,
+	ExternalLink,
+	KeyRound,
+	RefreshCw,
+	Wrench,
+} from "lucide-react";
 import { useMcpOAuth } from "@/components/providers/mcp-oauth-provider";
 import { Switch } from "@/components/ui/switch";
 import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
@@ -13,9 +19,16 @@ import type {
 	OAuthRedirectMode,
 } from "@/types/mcp-servers";
 import { cn } from "@/lib/utils";
+import {
+	PersonalCredentialsDialog,
+	type PersonalCredentialsServer,
+} from "./personal-credentials-dialog";
 
 interface MCPServerToolsPanelProps {
 	serverId: string;
+	/** Set for a personal API-key / custom HTTP server: the user may be asked
+	 * for their own secret before the tools can be listed. */
+	credentialsServer?: PersonalCredentialsServer;
 	disabledTools: string[];
 	onDisabledToolsChange?: (tools: string[]) => void;
 	disabled?: boolean;
@@ -24,6 +37,7 @@ interface MCPServerToolsPanelProps {
 
 export function MCPServerToolsPanel({
 	serverId,
+	credentialsServer,
 	disabledTools,
 	onDisabledToolsChange,
 	disabled = false,
@@ -37,10 +51,13 @@ export function MCPServerToolsPanel({
 	const [authSignInUrl, setAuthSignInUrl] = useState<string | null>(null);
 	const [authRedirectMode, setAuthRedirectMode] =
 		useState<OAuthRedirectMode>("hosted_callback");
+	const [needsCredentials, setNeedsCredentials] = useState(false);
+	const [credentialsOpen, setCredentialsOpen] = useState(false);
 
 	const loadTools = useCallback(async () => {
 		setIsLoading(true);
 		setError(null);
+		setNeedsCredentials(false);
 		try {
 			const result = await mcpServersApi.listMcpServerTools(serverId);
 			if (result.status === "error") {
@@ -48,6 +65,13 @@ export function MCPServerToolsPanel({
 				setAuthUrl(null);
 				setAuthSignInUrl(null);
 				setError(result);
+				return;
+			}
+			if (result.status === "credentials_required") {
+				setTools([]);
+				setAuthUrl(null);
+				setAuthSignInUrl(null);
+				setNeedsCredentials(true);
 				return;
 			}
 			if (result.status === "auth_required") {
@@ -152,6 +176,29 @@ export function MCPServerToolsPanel({
 							<RefreshCw className="size-3" />
 							{error.retryable ? "Try again" : "Check again"}
 						</button>
+					</div>
+				) : needsCredentials ? (
+					<div className="rounded-[12px] border border-dashed border-input p-6 text-center">
+						<p className="text-[13px] font-semibold text-foreground">
+							Connect to list tools
+						</p>
+						<p className="mt-1.5 text-[12px] leading-[1.5] text-meta dark:text-panel-dim">
+							{credentialsServer?.authType === "api_key"
+								? "This server uses a personal API key. Enter yours to list the tools."
+								: "This server uses personal HTTP headers. Enter your values to list the tools."}
+						</p>
+						{credentialsServer && (
+							<button
+								type="button"
+								onClick={() => {
+									setCredentialsOpen(true);
+								}}
+								className="mt-4 inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] bg-petrol px-3 py-2 text-[12px] font-semibold text-white hover:opacity-90"
+							>
+								<KeyRound className="size-3" />
+								Enter credentials
+							</button>
+						)}
 					</div>
 				) : authUrl ? (
 					<div className="rounded-[12px] border border-dashed border-input p-6 text-center">
@@ -260,6 +307,16 @@ export function MCPServerToolsPanel({
 					</div>
 				)}
 			</div>
+			{credentialsServer && (
+				<PersonalCredentialsDialog
+					server={credentialsOpen ? credentialsServer : null}
+					onOpenChange={setCredentialsOpen}
+					onSaved={() => {
+						setCredentialsOpen(false);
+						void loadTools();
+					}}
+				/>
+			)}
 		</div>
 	);
 }

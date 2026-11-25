@@ -11,6 +11,7 @@ import {
 	MCPServer,
 	MCPServerTool,
 	MCPToolLoadError,
+	usesUserCredentials,
 } from "@/types/mcp-servers";
 import { ToolStatus } from "@/types/agents";
 import { ChevronRight } from "lucide-react";
@@ -19,6 +20,7 @@ import MCPToolsDialog from "./mcp-tools-dialog";
 import { AgentMCPServerForm } from "../../lib/agent-form";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { ServerIconTile } from "@/app/(protected)/mcp-servers/components/server-icon-tile";
+import { PersonalCredentialsDialog } from "@/app/(protected)/mcp-servers/components/personal-credentials-dialog";
 import { useMcpOAuth } from "@/components/providers/mcp-oauth-provider";
 import { Switch } from "@/components/ui/switch";
 import { ThreeStateToggle } from "@/components/ui/three-state-toggle";
@@ -218,6 +220,7 @@ export default function AgentMCPServer({
 	const [tools, setTools] = useState<MCPServerTool[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [isConnected, setIsConnected] = useState(false);
+	const [credentialsOpen, setCredentialsOpen] = useState(false);
 	const [isCheckingConnection, setIsCheckingConnection] = useState(true);
 	const [toolsUnavailable, setToolsUnavailable] = useState(false);
 	const [toolsError, setToolsError] = useState<MCPToolLoadError | null>(null);
@@ -355,6 +358,14 @@ export default function AgentMCPServer({
 				return;
 			}
 
+			if (result.status === "credentials_required") {
+				if (oauthPopup && !oauthPopup.closed) oauthPopup.close();
+				setIsConnected(false);
+				expandedChangeRef.current(true);
+				setIsLoading(false);
+				return;
+			}
+
 			// `auth_required` is an answer, not an error: the server simply is
 			// not connected for this user yet, and the backend hands back the
 			// URL to open. (This used to arrive as a 401 in the catch below.)
@@ -472,6 +483,10 @@ export default function AgentMCPServer({
 	}, [server.id, server.name, startAuthorization]);
 
 	const handleConnect = async () => {
+		if (usesUserCredentials(server)) {
+			setCredentialsOpen(true);
+			return;
+		}
 		const popup =
 			server.authType === "oauth2"
 				? window.open("", "_blank", "width=600,height=700")
@@ -604,7 +619,11 @@ export default function AgentMCPServer({
 								Connect your account
 							</p>
 							<p className="mb-4 text-xs text-muted-foreground">
-								This server requires authentication.
+								{usesUserCredentials(server)
+									? server.authType === "api_key"
+										? "This server needs your own API key."
+										: "This server needs your own HTTP header values."
+									: "This server requires authentication."}
 							</p>
 							<button
 								className="cursor-pointer rounded-[7px] bg-petrol px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
@@ -701,6 +720,15 @@ export default function AgentMCPServer({
 					statusFor={statusFor}
 				/>
 			)}
+			<PersonalCredentialsDialog
+				server={credentialsOpen ? server : null}
+				onOpenChange={setCredentialsOpen}
+				onSaved={() => {
+					setCredentialsOpen(false);
+					setIsConnected(true);
+					void fetchTools();
+				}}
+			/>
 		</div>
 	);
 }

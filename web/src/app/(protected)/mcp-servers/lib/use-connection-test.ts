@@ -7,10 +7,20 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import {
 	ConnectionTestResult,
 	MCPAuthType,
+	MCPCredentialScope,
 	ServiceCredentialProvider,
 } from "@/types/mcp-servers";
+import type { PersonalCredentialsServer } from "../components/personal-credentials-dialog";
 
 export type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
+
+interface SavedTestServer {
+	id: string;
+	name?: string;
+	authType: MCPAuthType;
+	credentialScope?: MCPCredentialScope;
+	personalHeaderNames?: string[];
+}
 
 export interface CandidateTestInput {
 	url: string;
@@ -27,14 +37,18 @@ export interface CandidateTestInput {
  *
  * `runSavedTest` tests a saved server as the current user — an unauthorized
  * OAuth server opens the authorize popup and polls `/is-connected` until the
- * user finishes (or 60s elapse). `runCandidateTest` probes unsaved form
- * values without persisting anything.
+ * user finishes (or 60s elapse); a personal API-key / custom HTTP server the
+ * user has no secret for sets `credentialsServer`, for the caller to render a
+ * `PersonalCredentialsDialog` that ends in `completeCredentials`.
+ * `runCandidateTest` probes unsaved form values without persisting anything.
  */
 export function useConnectionTest() {
 	const { startAuthorization } = useMcpOAuth();
 	const [status, setStatus] = useState<ConnectionTestStatus>("idle");
 	const [message, setMessage] = useState<string | null>(null);
 	const [oauthFollowUpOpen, setOauthFollowUpOpen] = useState(false);
+	const [credentialsServer, setCredentialsServer] =
+		useState<PersonalCredentialsServer | null>(null);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const followUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -98,7 +112,7 @@ export function useConnectionTest() {
 	}, []);
 
 	const runSavedTest = useCallback(
-		async (server: { id: string; name?: string; authType: MCPAuthType }) => {
+		async (server: SavedTestServer) => {
 			clearPolling();
 			clearFollowUpTimer();
 			setOauthFollowUpOpen(false);
@@ -204,6 +218,17 @@ export function useConnectionTest() {
 				}
 				// No authorization needed — discard the pre-opened popup.
 				popup?.close();
+				if (data.credentialsRequired) {
+					setStatus("idle");
+					setMessage(null);
+					setCredentialsServer({
+						id: server.id,
+						name: server.name ?? "this server",
+						authType: server.authType,
+						personalHeaderNames: server.personalHeaderNames,
+					});
+					return;
+				}
 				applyResult(data);
 			} catch (error) {
 				popup?.close();
@@ -282,11 +307,25 @@ export function useConnectionTest() {
 		[applyResult, clearPolling],
 	);
 
+	const closeCredentialsPrompt = useCallback(() => {
+		setCredentialsServer(null);
+	}, []);
+
+	/** The prompt saved the user's secret: test again, now as connected. */
+	const completeCredentials = useCallback(() => {
+		const server = credentialsServer;
+		setCredentialsServer(null);
+		if (server) void runSavedTest(server);
+	}, [credentialsServer, runSavedTest]);
+
 	return {
 		status,
 		message,
 		oauthFollowUpOpen,
 		setOauthFollowUpOpen,
+		credentialsServer,
+		closeCredentialsPrompt,
+		completeCredentials,
 		reset,
 		runSavedTest,
 		verifySavedConnection,

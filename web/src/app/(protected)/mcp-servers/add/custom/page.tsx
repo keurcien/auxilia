@@ -18,7 +18,13 @@ import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAppearanceStore } from "@/stores/appearance-store";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
-import { MCPAuthType, OfficialMCPServer } from "@/types/mcp-servers";
+import {
+	isPersonalAuth,
+	MCPAuthType,
+	MCPCredentialScope,
+	OfficialMCPServer,
+	usesUserCredentials,
+} from "@/types/mcp-servers";
 import { groupOptions } from "@/lib/groups";
 import { ConnectionTestDialog } from "../../components/connection-test-dialog";
 import { MCPServerUrlField } from "../../components/mcp-server-url-field";
@@ -52,6 +58,7 @@ const emptyForm: MCPServerCreateFormValues = {
 	visibility: "workspace",
 	teamIds: [],
 	authType: "none",
+	credentialScope: "shared",
 	apiKey: "",
 	oauthClientId: "",
 	oauthClientSecret: "",
@@ -72,35 +79,77 @@ const INPUT_CLASS =
 const MONO_INPUT_CLASS = `${INPUT_CLASS} font-mono text-[12.5px] font-normal`;
 const ERROR_CLASS = "text-[12.5px] text-destructive";
 
-const AUTH_OPTIONS: {
-	value: MCPAuthType;
+interface AuthChoice {
+	authType: MCPAuthType;
+	credentialScope: MCPCredentialScope;
+}
+
+interface AuthOption extends AuthChoice {
 	label: string;
 	description: string;
+}
+
+const AUTH_SECTIONS: {
+	key: MCPCredentialScope;
+	title: string;
+	description: string;
+	options: AuthOption[];
 }[] = [
 	{
-		value: "none",
-		label: "None",
-		description: "Open endpoint, no credentials.",
+		key: "personal",
+		title: "Personal",
+		description: "Each user authenticates with their own credentials.",
+		options: [
+			{
+				authType: "oauth2",
+				credentialScope: "personal",
+				label: "OAuth 2.0",
+				description: "Each user signs in with their own account.",
+			},
+			{
+				authType: "api_key",
+				credentialScope: "personal",
+				label: "Personal API key",
+				description: "Each user enters their own key, sent as a Bearer token.",
+			},
+			{
+				authType: "custom_http",
+				credentialScope: "personal",
+				label: "Personal HTTP headers",
+				description: "You choose the headers, each user fills in their own values.",
+			},
+		],
 	},
 	{
-		value: "api_key",
-		label: "API Key Bearer",
-		description: "One shared key sent as an Authorization Bearer token.",
-	},
-	{
-		value: "oauth2",
-		label: "OAuth 2.0",
-		description: "Each user connects their own account.",
-	},
-	{
-		value: "service_identity",
-		label: "Service identity",
-		description: "One managed machine identity for the workspace.",
-	},
-	{
-		value: "custom_http",
-		label: "Custom HTTP",
-		description: "Attach workspace-managed headers to every request.",
+		key: "shared",
+		title: "Shared",
+		description: "You set the credentials once, everyone uses them.",
+		options: [
+			{
+				authType: "none",
+				credentialScope: "shared",
+				label: "None",
+				description: "Open endpoint, no credentials.",
+			},
+			{
+				authType: "api_key",
+				credentialScope: "shared",
+				label: "Shared API key",
+				description: "One key sent as a Bearer token for everyone.",
+			},
+			{
+				authType: "service_identity",
+				credentialScope: "shared",
+				label: "Service identity",
+				description: "One managed machine identity for the workspace.",
+			},
+			{
+				authType: "custom_http",
+				credentialScope: "shared",
+				label: "Shared HTTP headers",
+				description: "Headers you set, attached to every request.",
+			},
+		],
 	},
 ];
 
@@ -109,62 +158,100 @@ function AuthMethodCards({
 	onChange,
 	allowServiceIdentity,
 }: {
-	value: MCPAuthType;
-	onChange: (value: MCPAuthType) => void;
+	value: AuthChoice;
+	onChange: (value: AuthChoice) => void;
 	allowServiceIdentity: boolean;
 }) {
+	const selectedPersonal = isPersonalAuth(value);
 	return (
 		<div
 			role="radiogroup"
 			aria-label="Authentication method"
-			className="grid grid-cols-1 gap-2.5 sm:grid-cols-2"
+			className="flex flex-col gap-4"
 		>
-			{AUTH_OPTIONS.filter(
-				(option) => option.value !== "service_identity" || allowServiceIdentity,
-			).map((option) => {
-				const selected = option.value === value;
-				return (
-					<button
-						key={option.value}
-						type="button"
-						role="radio"
-						aria-checked={selected}
-						onClick={() => {
-							onChange(option.value);
-						}}
-						className={`flex cursor-pointer flex-col gap-[5px] rounded-[10px] border p-[13px] text-left transition-[border-color,box-shadow] ${
-							selected
-								? "border-petrol bg-[#F7FAFA] shadow-[0_0_0_3px_rgba(22,96,110,0.08)] dark:bg-petrol/10"
-								: "border-border hover:border-input"
-						}`}
-					>
-						<span className="flex items-center gap-2">
-							<span
-								className={`flex size-3.5 shrink-0 items-center justify-center rounded-full border-[1.5px] ${
-									selected ? "border-petrol" : "border-faint"
-								}`}
-							>
-								{selected && (
-									<span className="size-[7px] rounded-full bg-petrol" />
-								)}
-							</span>
-							<span className="text-[13px] font-semibold text-foreground">
-								{option.label}
-							</span>
-						</span>
-						<span
-							className={`text-[11.5px] leading-[1.45] ${
-								selected
-									? "text-body dark:text-panel-body"
-									: "text-meta dark:text-panel-dim"
-							}`}
-						>
-							{option.description}
-						</span>
-					</button>
-				);
-			})}
+			{AUTH_SECTIONS.map((section) => (
+				<div key={section.key} className="flex flex-col gap-2">
+					<div>
+						<div className="text-[12.5px] font-semibold text-foreground">
+							{section.title}
+						</div>
+						<div className="text-[12px] text-meta dark:text-panel-dim">
+							{section.description}
+						</div>
+					</div>
+					<div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+						{section.options
+							.filter(
+								(option) =>
+									option.authType !== "service_identity" ||
+									allowServiceIdentity,
+							)
+							.map((option) => (
+								<AuthMethodCard
+									key={`${option.authType}:${option.credentialScope}`}
+									option={option}
+									selected={
+										option.authType === value.authType &&
+										isPersonalAuth(option) === selectedPersonal
+									}
+									onSelect={() => {
+										onChange({
+											authType: option.authType,
+											credentialScope: option.credentialScope,
+										});
+									}}
+								/>
+							))}
+					</div>
+				</div>
+			))}
 		</div>
+	);
+}
+
+function AuthMethodCard({
+	option,
+	selected,
+	onSelect,
+}: {
+	option: AuthOption;
+	selected: boolean;
+	onSelect: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			role="radio"
+			aria-checked={selected}
+			onClick={onSelect}
+			className={`flex cursor-pointer flex-col gap-[5px] rounded-[10px] border p-[13px] text-left transition-[border-color,box-shadow] ${
+				selected
+					? "border-petrol bg-[#F7FAFA] shadow-[0_0_0_3px_rgba(22,96,110,0.08)] dark:bg-petrol/10"
+					: "border-border hover:border-input"
+			}`}
+		>
+			<span className="flex items-center gap-2">
+				<span
+					className={`flex size-3.5 shrink-0 items-center justify-center rounded-full border-[1.5px] ${
+						selected ? "border-petrol" : "border-faint"
+					}`}
+				>
+					{selected && <span className="size-[7px] rounded-full bg-petrol" />}
+				</span>
+				<span className="text-[13px] font-semibold text-foreground">
+					{option.label}
+				</span>
+			</span>
+			<span
+				className={`text-[11.5px] leading-[1.45] ${
+					selected
+						? "text-body dark:text-panel-body"
+						: "text-meta dark:text-panel-dim"
+				}`}
+			>
+				{option.description}
+			</span>
+		</button>
 	);
 }
 
@@ -220,6 +307,8 @@ export default function CustomMCPServerPage() {
 					visibility: "workspace",
 					teamIds: [],
 					authType: official.authType,
+					credentialScope:
+						official.authType === "oauth2" ? "personal" : "shared",
 					apiKey: "",
 					oauthClientId: "",
 					oauthClientSecret: "",
@@ -251,6 +340,12 @@ export default function CustomMCPServerPage() {
 	}, [officialUrl]);
 
 	const isNonDcrOAuth = requiresStaticOAuthCredentials(selectedOfficial);
+	const userEntered = usesUserCredentials({
+		authType: form.authType,
+		credentialScope: form.credentialScope,
+	});
+	const isPersonalApiKey = userEntered && form.authType === "api_key";
+	const isPersonalHeaders = userEntered && form.authType === "custom_http";
 
 	const handleFormChange = (
 		field: keyof MCPServerCreateFormValues,
@@ -407,7 +502,8 @@ export default function CustomMCPServerPage() {
 							: isNonDcrOAuth && form.authType === "oauth2"
 								? "This server requires OAuth credentials from the provider's developer console."
 								: selectedOfficial?.authType === "api_key" &&
-								  form.authType === "api_key"
+								  form.authType === "api_key" &&
+								  !isPersonalApiKey
 								? "This server requires an API key shared by the whole workspace."
 								: "Connect any remote server that speaks the Model Context Protocol over HTTP."}
 					</p>
@@ -516,13 +612,28 @@ export default function CustomMCPServerPage() {
 						<div className="flex flex-col gap-2.5">
 							<span className={LABEL_CLASS}>Authentication method</span>
 							<AuthMethodCards
-								value={form.authType}
+								value={{
+									authType: form.authType,
+									credentialScope: form.credentialScope ?? "shared",
+								}}
 								allowServiceIdentity={
 									!selectedOfficial ||
 									(selectedOfficial.serviceCredentialProviders?.length ?? 0) > 0
 								}
-								onChange={(value) => {
-									handleFormChange("authType", value);
+								onChange={(choice) => {
+									setForm((current) => ({ ...current, ...choice }));
+									setErrors(
+										(current) =>
+											Object.fromEntries(
+												Object.entries(current).filter(
+													([key]) =>
+														key !== "authType" &&
+														key !== "apiKey" &&
+														key !== "serviceHeaders",
+												),
+											) as MCPServerCreateFormErrors,
+									);
+									if (testStatus !== "idle") resetTest();
 								}}
 							/>
 						</div>
@@ -531,12 +642,20 @@ export default function CustomMCPServerPage() {
 						{form.authType === "api_key" && (
 							<div className="flex flex-col gap-[18px] rounded-xl border border-border bg-sidebar p-[18px] dark:bg-white/5">
 								<div className="text-[12.5px] leading-[1.55] text-subtle dark:text-panel-body">
-									The key is encrypted at rest and shared by everyone in the
-									workspace, it is never shown again after saving.
+									{isPersonalApiKey
+										? "Each user enters their own API key when they connect. Enter yours now to be connected right away: it is encrypted and only used for your conversations."
+										: "The key is encrypted at rest and shared by everyone in the workspace, it is never shown again after saving."}
 								</div>
 								<div className="flex flex-col gap-[7px]">
 									<label htmlFor="mcp-api-key" className={LABEL_CLASS}>
-										API Key Bearer <span className="text-destructive">*</span>
+										{isPersonalApiKey ? (
+											<>Your API key{OPTIONAL_HINT}</>
+										) : (
+											<>
+												API Key Bearer{" "}
+												<span className="text-destructive">*</span>
+											</>
+										)}
 									</label>
 									<input
 										id="mcp-api-key"
@@ -546,7 +665,7 @@ export default function CustomMCPServerPage() {
 										onChange={(e) => {
 											handleFormChange("apiKey", e.target.value);
 										}}
-										aria-required="true"
+										aria-required={!isPersonalApiKey}
 										aria-invalid={!!errors.apiKey}
 										aria-describedby={
 											errors.apiKey ? "mcp-api-key-error" : undefined
@@ -678,9 +797,11 @@ export default function CustomMCPServerPage() {
 										<FileKey2 className="size-[17px]" />
 									</span>
 									<div className="text-[12.5px] leading-[1.55] text-subtle dark:text-panel-body">
-										{form.authType === "custom_http"
-											? "These headers are shared by authorized users and agents. Their values are encrypted at rest and never returned by the API."
-											: "This identity is shared by authorized users and agents. The credential is encrypted at rest and its secret values are never returned by the API."}
+										{isPersonalHeaders
+											? "You choose the header names. Each user fills in their own values when they connect. Enter yours now to be connected right away, or leave the values empty to connect later."
+											: form.authType === "custom_http"
+												? "These headers are shared by authorized users and agents. Their values are encrypted at rest and never returned by the API."
+												: "This identity is shared by authorized users and agents. The credential is encrypted at rest and its secret values are never returned by the API."}
 									</div>
 								</div>
 
@@ -783,9 +904,17 @@ export default function CustomMCPServerPage() {
 													className={MONO_INPUT_CLASS}
 												/>
 												<input
-													aria-label={`Header ${index + 1} value`}
+													aria-label={
+														isPersonalHeaders
+															? `Your value for header ${index + 1}`
+															: `Header ${index + 1} value`
+													}
 													type="password"
-													placeholder="Bearer ••••••••"
+													placeholder={
+														isPersonalHeaders
+															? "Your value, optional"
+															: "Bearer ••••••••"
+													}
 													value={header.value}
 													onChange={(e) => {
 														updateServiceHeader(index, "value", e.target.value);
@@ -815,7 +944,9 @@ export default function CustomMCPServerPage() {
 											</span>
 										)}
 										<span className="text-[12px] text-meta dark:text-panel-dim">
-											Headers are encrypted and sent with every request.
+											{isPersonalHeaders
+												? "Values are encrypted and only used by the user who entered them."
+												: "Headers are encrypted and sent with every request."}{" "}
 											Transport-managed headers such as Host and Content-Length
 											are not allowed.
 										</span>

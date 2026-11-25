@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import * as agentsApi from "@/lib/api/resources/agents";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
-import type { MCPServer } from "@/types/mcp-servers";
+import { usesUserCredentials, type MCPServer } from "@/types/mcp-servers";
 import type { AgentResourceMCPServer, AgentResources } from "@/types/agents";
 import type {
 	ThreadResourceSettings,
@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ServerIconTile } from "@/app/(protected)/mcp-servers/components/server-icon-tile";
+import { PersonalCredentialsDialog } from "@/app/(protected)/mcp-servers/components/personal-credentials-dialog";
 import { useMcpOAuth } from "@/components/providers/mcp-oauth-provider";
 import { SkillAvatar } from "@/components/ui/skill-avatar";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
@@ -81,6 +82,8 @@ export function ConnectServersDialog({
 	const [loadFailedFor, setLoadFailedFor] = useState<string | null>(null);
 	const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set());
 	const [connectingId, setConnectingId] = useState<string | null>(null);
+	const [credentialsServer, setCredentialsServer] =
+		useState<AgentResourceMCPServer | null>(null);
 	const [searchQuery, setSearchQuery] = useState("");
 	const isMobile = useIsMobile();
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -287,6 +290,12 @@ export function ConnectServersDialog({
 
 	const handleConnect = useCallback(
 		async (server: AgentResourceMCPServer) => {
+			// Personal API-key / custom HTTP servers ask for the user's own
+			// secret in place: there is no provider page to open.
+			if (usesUserCredentials(server)) {
+				setCredentialsServer(server);
+				return;
+			}
 			setConnectingId(server.id);
 			const popup = window.open("", "_blank", "width=600,height=700");
 
@@ -296,6 +305,12 @@ export function ConnectServersDialog({
 				if (result.status === "ok") {
 					if (popup && !popup.closed) popup.close();
 					markConnected(server.id);
+					return;
+				}
+				if (result.status === "credentials_required") {
+					if (popup && !popup.closed) popup.close();
+					setConnectingId(null);
+					setCredentialsServer(server);
 					return;
 				}
 				if (result.status === "error") {
@@ -939,6 +954,17 @@ export function ConnectServersDialog({
 					</div>
 				</div>
 			</DialogContent>
+			<PersonalCredentialsDialog
+				server={credentialsServer}
+				onOpenChange={(nextOpen) => {
+					if (!nextOpen) setCredentialsServer(null);
+				}}
+				onSaved={(serverId) => {
+					setCredentialsServer(null);
+					toast.success(`${credentialsServer?.name ?? "Server"} connected`);
+					markConnected(serverId);
+				}}
+			/>
 		</Dialog>
 	);
 }

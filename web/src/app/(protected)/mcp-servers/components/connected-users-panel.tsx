@@ -7,11 +7,15 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import {
+	isPersonalAuth,
 	MCPAuthType,
 	MCPConnectionDisconnectSummary,
+	MCPCredentialScope,
 	MCPServerConnection,
+	usesUserCredentials,
 } from "@/types/mcp-servers";
 import { DisconnectSummaryDialog } from "./disconnect-summary-dialog";
+import { PersonalCredentialsDialog } from "./personal-credentials-dialog";
 
 function StatusBadge({ status }: { status: MCPServerConnection["status"] }) {
 	const active = status === "active";
@@ -82,7 +86,10 @@ function CredentialNote({
 
 interface ConnectedUsersPanelProps {
 	serverId: string;
+	serverName: string;
 	authType: MCPAuthType;
+	credentialScope?: MCPCredentialScope;
+	personalHeaderNames?: string[];
 	isAdmin: boolean;
 	/** Confirms + calls the reset endpoint; resolves true when it ran. */
 	onResetAll: () => Promise<boolean>;
@@ -91,18 +98,24 @@ interface ConnectedUsersPanelProps {
 }
 
 /**
- * CONNECTED USERS panel (detail page, OAuth servers): every user holding a
- * stored token, with status and a per-user Revoke. Admin-only — the backend
- * endpoints are admin-gated.
+ * CONNECTED USERS panel (detail page, personal servers): every user holding a
+ * stored OAuth token or their own API key / header values, with status and a
+ * per-user Revoke. Admin-only — the backend endpoints are admin-gated.
  */
 export function ConnectedUsersPanel({
 	serverId,
+	serverName,
 	authType,
+	credentialScope,
+	personalHeaderNames,
 	isAdmin,
 	onResetAll,
 	onReconnect,
 	connectionRevision,
 }: ConnectedUsersPanelProps) {
+	const personal = isPersonalAuth({ authType, credentialScope });
+	const userEntered = usesUserCredentials({ authType, credentialScope });
+	const [credentialsOpen, setCredentialsOpen] = useState(false);
 	const confirmDialog = useConfirmDialog();
 	const [connections, setConnections] = useState<MCPServerConnection[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -114,7 +127,7 @@ export function ConnectedUsersPanel({
 	const [disconnectSummary, setDisconnectSummary] =
 		useState<MCPConnectionDisconnectSummary | null>(null);
 	const [summaryOpen, setSummaryOpen] = useState(false);
-	const canView = authType === "oauth2" && isAdmin;
+	const canView = personal && isAdmin;
 
 	const fetchConnections = useCallback(async () => {
 		try {
@@ -150,7 +163,7 @@ export function ConnectedUsersPanel({
 	}, [canView, serverId]);
 
 	useEffect(() => {
-		if (authType !== "oauth2") return;
+		if (!personal) return;
 		let active = true;
 		setPersonalConnected(null);
 		void mcpServersApi
@@ -169,9 +182,9 @@ export function ConnectedUsersPanel({
 		return () => {
 			active = false;
 		};
-	}, [authType, connectionRevision, serverId]);
+	}, [personal, connectionRevision, serverId]);
 
-	if (authType !== "oauth2") {
+	if (!personal && authType !== "oauth2") {
 		return <CredentialNote authType={authType} />;
 	}
 
@@ -184,10 +197,15 @@ export function ConnectedUsersPanel({
 	const handlePersonalDisconnect = async () => {
 		if (
 			!(await confirmDialog({
-				title: "Disconnect your account?",
-				description:
-					"You will need to reconnect before using this MCP server again. Other users and shared credentials are not affected.",
-				confirmLabel: "Disconnect my account",
+				title: userEntered
+					? "Remove your credentials?"
+					: "Disconnect your account?",
+				description: userEntered
+					? "Your saved credentials will be deleted. You will need to enter them again before using this MCP server. Other users are not affected."
+					: "You will need to reconnect before using this MCP server again. Other users and shared credentials are not affected.",
+				confirmLabel: userEntered
+					? "Remove my credentials"
+					: "Disconnect my account",
 				destructive: true,
 			}))
 		)
@@ -249,21 +267,44 @@ export function ConnectedUsersPanel({
 						<p className="mt-0.5 text-[12px] text-meta dark:text-panel-dim">
 							{personalConnected === null
 								? "Checking your account…"
-								: personalConnected
-									? "Your personal OAuth account is connected."
-									: "No personal account is connected."}
+								: userEntered
+									? personalConnected
+										? authType === "api_key"
+											? "Your personal API key is saved."
+											: "Your personal header values are saved."
+										: authType === "api_key"
+											? "You have not entered your API key yet."
+											: "You have not entered your header values yet."
+									: personalConnected
+										? "Your personal OAuth account is connected."
+										: "No personal account is connected."}
 						</p>
 					</div>
-					{personalConnected === false && (
-					<button
-						type="button"
-						onClick={() => {
+					{userEntered && personalConnected !== null && (
+						<button
+							type="button"
+							onClick={() => {
+								setCredentialsOpen(true);
+							}}
+							className={
+								personalConnected
+									? "cursor-pointer rounded-[7px] border border-border px-3 py-[6px] text-[12px] font-semibold text-foreground transition-colors hover:bg-hover dark:hover:bg-white/5"
+									: "cursor-pointer rounded-[7px] bg-petrol px-3 py-[6px] text-[12px] font-semibold text-white transition-colors hover:bg-petrol/90"
+							}
+						>
+							{personalConnected ? "Replace" : "Connect"}
+						</button>
+					)}
+					{!userEntered && personalConnected === false && (
+						<button
+							type="button"
+							onClick={() => {
 								onReconnect();
-						}}
+							}}
 							className="cursor-pointer rounded-[7px] bg-petrol px-3 py-[6px] text-[12px] font-semibold text-white transition-colors hover:bg-petrol/90"
-					>
+						>
 							Reconnect
-					</button>
+						</button>
 					)}
 					{personalConnected === true && (
 						<button
@@ -274,7 +315,11 @@ export function ConnectedUsersPanel({
 							}}
 							className="cursor-pointer rounded-[7px] border border-border px-3 py-[6px] text-[12px] font-semibold text-[#B04A3A] transition-colors hover:bg-[#FBEFED] disabled:cursor-default disabled:opacity-50 dark:hover:bg-rose-950"
 						>
-							{isDisconnecting ? "Disconnecting…" : "Disconnect my account"}
+							{isDisconnecting
+								? "Disconnecting…"
+								: userEntered
+									? "Remove"
+									: "Disconnect my account"}
 						</button>
 					)}
 				</div>
@@ -390,6 +435,22 @@ export function ConnectedUsersPanel({
 				summary={disconnectSummary}
 				title="Your MCP account disconnect report"
 			/>
+			{userEntered && (
+				<PersonalCredentialsDialog
+					server={
+						credentialsOpen
+							? { id: serverId, name: serverName, authType, personalHeaderNames }
+							: null
+					}
+					onOpenChange={setCredentialsOpen}
+					onSaved={() => {
+						setCredentialsOpen(false);
+						setPersonalConnected(true);
+						setPersonalError(null);
+						if (isAdmin) void fetchConnections();
+					}}
+				/>
+			)}
 		</div>
 	);
 }

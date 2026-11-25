@@ -6,7 +6,11 @@ from pydantic import field_serializer, field_validator
 from sqlmodel import Field, SQLModel
 
 from app.mcp.compatibility import OAuthRedirectMode
-from app.mcp.servers.models import MCPAuthType, ServiceCredentialProvider
+from app.mcp.servers.models import (
+    MCPAuthType,
+    MCPCredentialScope,
+    ServiceCredentialProvider,
+)
 from app.visibility import ResourceVisibility
 
 
@@ -19,15 +23,38 @@ def _normalize_group(value: str | None) -> str | None:
     return normalized or None
 
 
+class HTTPHeaderValue(SQLModel):
+    name: str
+    value: str
+
+
+class PersonalCredentialsInput(SQLModel):
+    """One user's own secret for a personal API-key or custom HTTP server.
+
+    Headers travel as a list, not a mapping: the client's case conversion
+    would otherwise rewrite header names used as object keys.
+    """
+
+    api_key: str | None = Field(default=None, exclude=True)
+    headers: list[HTTPHeaderValue] | None = Field(default=None, exclude=True)
+
+
 class MCPServerCreate(SQLModel):
     name: str
     url: str
     auth_type: MCPAuthType = MCPAuthType.none
+    credential_scope: MCPCredentialScope = MCPCredentialScope.shared
+    personal_header_names: list[str] = Field(default_factory=list)
     icon_url: str | None = None
     description: str | None = None
     group: str | None = None
     visibility: ResourceVisibility = ResourceVisibility.workspace
     team_ids: list[UUID] = Field(default_factory=list, exclude=True)
+    # The creator's own secret for a personal server, saved as their
+    # connection so they don't have to connect again right after creating it.
+    personal_credentials: PersonalCredentialsInput | None = Field(
+        default=None, exclude=True
+    )
     api_key: str | None = Field(default=None, exclude=True)
     oauth_client_id: str | None = Field(default=None, exclude=True)
     oauth_client_secret: str | None = Field(default=None, exclude=True)
@@ -65,6 +92,9 @@ class MCPServerPatch(SQLModel):
     )
     service_credentials_json: str | None = Field(default=None, exclude=True)
     service_credential_scopes: list[str] | None = Field(default=None, exclude=True)
+    # Renaming the headers of a personal custom HTTP server invalidates every
+    # user's stored values, so the service applies it rather than the dump.
+    personal_header_names: list[str] | None = Field(default=None, exclude=True)
     disabled_tools: list[str] = Field(default_factory=list)
 
     @field_validator("group")
@@ -93,6 +123,8 @@ class MCPServerResponse(SQLModel):
     name: str
     url: str
     auth_type: MCPAuthType
+    credential_scope: MCPCredentialScope = MCPCredentialScope.shared
+    personal_header_names: list[str] = Field(default_factory=list)
     icon_url: str | None = None
     image_revision: UUID | None = None
     description: str | None = None
@@ -276,6 +308,16 @@ class AuthorizationRequired(SQLModel):
     oauth_sign_in_url: str | None = None
 
 
+class CredentialsRequired(SQLModel):
+    """The user must enter their own API key or header values first.
+
+    The personal API-key / custom HTTP counterpart of `AuthorizationRequired`;
+    the client already knows which fields to ask for from the server itself.
+    """
+
+    status: Literal["credentials_required"] = "credentials_required"
+
+
 class ToolsUnavailable(SQLModel):
     """A connection failure the tools panel can explain and help resolve."""
 
@@ -288,7 +330,7 @@ class ToolsUnavailable(SQLModel):
 
 
 ListToolsResult = Annotated[
-    ToolsListed | AuthorizationRequired | ToolsUnavailable,
+    ToolsListed | AuthorizationRequired | CredentialsRequired | ToolsUnavailable,
     Field(discriminator="status"),
 ]
 
@@ -304,4 +346,5 @@ class ConnectionTestResult(SQLModel):
     auth_url: str | None = None
     oauth_redirect_mode: OAuthRedirectMode = OAuthRedirectMode.hosted_callback
     oauth_sign_in_url: str | None = None
+    credentials_required: bool = False
     error: str | None = None

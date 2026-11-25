@@ -240,6 +240,18 @@ _RESERVED_HEADERS = {
 }
 
 
+def _check_header_name(name: object, seen: set[str]) -> str:
+    if not isinstance(name, str) or not _HEADER_NAME.fullmatch(name):
+        raise DomainValidationError(f"Invalid HTTP header name: {name!r}")
+    lowered = name.lower()
+    if lowered in _RESERVED_HEADERS:
+        raise DomainValidationError(f"HTTP header '{name}' is managed by the transport")
+    if lowered in seen:
+        raise DomainValidationError(f"Duplicate HTTP header: {name}")
+    seen.add(lowered)
+    return name
+
+
 def _custom_headers(credentials_json: str) -> tuple[tuple[str, str], ...]:
     raw_headers = _json_object(credentials_json).get("headers")
     if not isinstance(raw_headers, list) or not raw_headers:
@@ -250,17 +262,8 @@ def _custom_headers(credentials_json: str) -> tuple[tuple[str, str], ...]:
     for raw in raw_headers:
         if not isinstance(raw, dict):
             raise DomainValidationError("Each custom HTTP header must be an object")
-        name = raw.get("name")
+        name = _check_header_name(raw.get("name"), seen)
         value = raw.get("value")
-        if not isinstance(name, str) or not _HEADER_NAME.fullmatch(name):
-            raise DomainValidationError(f"Invalid HTTP header name: {name!r}")
-        lowered = name.lower()
-        if lowered in _RESERVED_HEADERS:
-            raise DomainValidationError(
-                f"HTTP header '{name}' is managed by the transport"
-            )
-        if lowered in seen:
-            raise DomainValidationError(f"Duplicate HTTP header: {name}")
         if (
             not isinstance(value, str)
             or not value.strip()
@@ -268,9 +271,41 @@ def _custom_headers(credentials_json: str) -> tuple[tuple[str, str], ...]:
             or "\n" in value
         ):
             raise DomainValidationError(f"Invalid value for HTTP header '{name}'")
-        seen.add(lowered)
         headers.append((name, value))
     return tuple(headers)
+
+
+def validate_header_names(names: Sequence[str]) -> list[str]:
+    """The header names a personal custom HTTP server asks each user to fill."""
+    seen: set[str] = set()
+    checked = [_check_header_name(name.strip(), seen) for name in names]
+    if not checked:
+        raise DomainValidationError("At least one custom HTTP header is required")
+    return checked
+
+
+def personal_headers_json(
+    header_names: Sequence[str], values: Sequence[tuple[str, str]]
+) -> str:
+    """One user's header values as a ``custom_http_headers`` document.
+
+    The server's configured names are authoritative: every one needs a value,
+    and a user cannot add headers the admin did not declare.
+    """
+    by_name = {name.lower(): value for name, value in values}
+    unknown = set(by_name) - {name.lower() for name in header_names}
+    if unknown:
+        raise DomainValidationError(f"Unexpected HTTP header: {sorted(unknown)[0]}")
+    document = json.dumps(
+        {
+            "headers": [
+                {"name": name, "value": by_name.get(name.lower(), "")}
+                for name in header_names
+            ]
+        }
+    )
+    _custom_headers(document)
+    return document
 
 
 def _google_credentials(

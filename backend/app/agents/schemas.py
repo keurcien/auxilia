@@ -12,6 +12,7 @@ from app.agents.models import (
     ToolDiscoveryMode,
     ToolStatus,
 )
+from app.mcp.servers.models import MCPAuthType, MCPCredentialScope
 from app.sandbox.models import SandboxProviderType
 from app.skills.schemas import AgentSkillResponse
 from app.visibility import ResourceVisibility
@@ -204,6 +205,9 @@ class AgentResourceMCPServerResponse(SQLModel):
     icon_url: str | None = None
     image_revision: UUID | None = None
     description: str | None = None
+    auth_type: MCPAuthType = MCPAuthType.none
+    credential_scope: MCPCredentialScope = MCPCredentialScope.shared
+    personal_header_names: list[str] = Field(default_factory=list)
     tool_names: list[str] = Field(default_factory=list)
     configured: bool
     enabled_by_default: bool

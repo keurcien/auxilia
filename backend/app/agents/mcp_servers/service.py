@@ -26,7 +26,7 @@ from app.database_connections.tools import (
 )
 from app.exceptions import DomainValidationError, NotFoundError
 from app.mcp.client.connectivity import connect_to_server, is_authorized
-from app.mcp.servers.models import MCPAuthType, MCPServerDB
+from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import MCPServerAgentResponse
 from app.realtime.schemas import WorkspaceEventKind
@@ -239,16 +239,12 @@ class AgentMCPServerService(BaseService[AgentMCPServerDB, AgentMCPServerReposito
             )
         )
 
-        should_fetch = mcp_server.auth_type in (
-            MCPAuthType.none,
-            MCPAuthType.api_key,
-            MCPAuthType.service_identity,
-            MCPAuthType.custom_http,
-        ) or (
-            mcp_server.auth_type == MCPAuthType.oauth2
-            and await is_authorized(
-                mcp_server, user_id, self.workspace_id, refresh=False
-            )
+        should_fetch = not mcp_server.is_personal or await is_authorized(
+            mcp_server,
+            user_id,
+            self.workspace_id,
+            refresh=False,
+            repository=self._servers,
         )
         if should_fetch:
             await self._sync_tools(db_link, mcp_server, user_id)

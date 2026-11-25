@@ -27,24 +27,38 @@ from app.mcp.client.connectivity import (
     connect_to_server,
     initiate_oauth,
     is_authorized,
+    probe_candidate,
 )
-from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.exceptions import (
+    OAuthAuthorizationRequired,
+    PersonalCredentialsRequired,
+)
 from app.mcp.client.failures import classify_mcp_failure
 from app.mcp.client.revocation import revoke_oauth_tokens
-from app.mcp.client.service_credentials import validate_service_credential
+from app.mcp.client.service_credentials import (
+    personal_headers_json,
+    validate_header_names,
+    validate_service_credential,
+)
 from app.mcp.client.storage import TokenStorageFactory
 from app.mcp.compatibility import OAuthRedirectMode, OAuthRedirectStrategy
 from app.mcp.oauth.service import resource_url
 from app.mcp.servers import catalog as mcp_catalog
 from app.mcp.servers.models import (
+    USER_ENTERED_AUTH_TYPES,
     MCPAuthType,
+    MCPCredentialScope,
     MCPServerDB,
     MCPServerImageDB,
     ServiceCredentialProvider,
+    credential_scope_for,
+    is_personal_auth,
+    stores_user_credentials,
 )
 from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import (
     AuthorizationRequired,
+    CredentialsRequired,
     MCPCatalogSyncResponse,
     MCPConnectionDisconnectFailure,
     MCPConnectionDisconnectSummary,
@@ -57,6 +71,7 @@ from app.mcp.servers.schemas import (
     MCPToolInfo,
     OAuthSecretHint,
     OfficialMCPServerResponse,
+    PersonalCredentialsInput,
     ToolsListed,
     ToolsUnavailable,
 )
@@ -137,6 +152,24 @@ def _validate_manual_redirect_uri(
         raise DomainValidationError("The callback URL uses an unexpected path")
 
 
+def _user_credential_plaintext(
+    server: MCPServerDB, payload: PersonalCredentialsInput
+) -> str:
+    """The value stored for one user: the raw key for an API-key server, the
+    ``custom_http_headers`` document (in the server's header order) otherwise."""
+    if server.auth_type == MCPAuthType.api_key:
+        key = (payload.api_key or "").strip()
+        if not key:
+            raise DomainValidationError("An API key is required")
+        if "\r" in key or "\n" in key:
+            raise DomainValidationError("The API key contains invalid characters")
+        return key
+    return personal_headers_json(
+        server.personal_header_names,
+        [(header.name.strip(), header.value) for header in payload.headers or []],
+    )
+
+
 class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
     not_found_message = "MCP server not found"
 
@@ -193,14 +226,33 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         await self._stage_servers_changed()
 
     async def create(self, data: MCPServerCreate, owner_id: UUID) -> MCPServerDB:
-        if data.auth_type == MCPAuthType.api_key and not data.api_key:
+        if (
+            data.credential_scope == MCPCredentialScope.personal
+            and data.auth_type not in USER_ENTERED_AUTH_TYPES
+            and data.auth_type != MCPAuthType.oauth2
+        ):
+            raise DomainValidationError(
+                f"{data.auth_type.value} servers can't use personal credentials"
+            )
+        scope = credential_scope_for(data.auth_type, data.credential_scope)
+        personal = stores_user_credentials(data.auth_type, scope)
+        header_names = (
+            validate_header_names(data.personal_header_names)
+            if personal and data.auth_type == MCPAuthType.custom_http
+            else []
+        )
+        data = data.model_copy(
+            update={"credential_scope": scope, "personal_header_names": header_names}
+        )
+
+        if data.auth_type == MCPAuthType.api_key and not personal and not data.api_key:
             raise DomainValidationError(
                 "API key is required when auth_type is 'api_key'"
             )
         service_credential = None
         service_provider = data.service_credential_provider
         service_credentials_json = data.service_credentials_json
-        if data.auth_type in (
+        if not personal and data.auth_type in (
             MCPAuthType.service_identity,
             MCPAuthType.custom_http,
         ):
@@ -239,8 +291,15 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         if data.team_ids:
             await self.repository.set_team_ids(db_server.id, data.team_ids)
 
-        if data.auth_type == MCPAuthType.api_key and data.api_key:
+        if data.auth_type == MCPAuthType.api_key and data.api_key and not personal:
             await self.repository.create_or_update_api_key(db_server.id, data.api_key)
+
+        if personal and data.personal_credentials is not None:
+            await self.repository.set_user_credential(
+                db_server.id,
+                owner_id,
+                _user_credential_plaintext(db_server, data.personal_credentials),
+            )
 
         if (
             data.auth_type == MCPAuthType.oauth2
@@ -540,8 +599,31 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
                 MCPAuthType.custom_http,
             ):
                 await self.repository.delete_service_credential(server_id)
+            # The scope is chosen with the auth type at creation; a switch
+            # through the API lands on the type's default.
+            await self.repository.delete_user_credentials(server_id)
+            await self.repository.set_credential_config(
+                updated,
+                scope=credential_scope_for(
+                    updated.auth_type, MCPCredentialScope.shared
+                ),
+                personal_header_names=[],
+            )
+        elif (
+            data.personal_header_names is not None
+            and updated.uses_user_credentials
+            and updated.auth_type == MCPAuthType.custom_http
+        ):
+            names = validate_header_names(data.personal_header_names)
+            if names != updated.personal_header_names:
+                await self.repository.delete_user_credentials(server_id)
+                await self.repository.set_credential_config(
+                    updated,
+                    scope=updated.credential_scope,
+                    personal_header_names=names,
+                )
 
-        if data.api_key:
+        if data.api_key and not updated.uses_user_credentials:
             await self.repository.create_or_update_api_key(server_id, data.api_key)
 
         # Both fields explicitly blank remove static credentials and return the
@@ -565,10 +647,15 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             or data.service_credentials_json is not None
             or data.service_credential_scopes is not None
         )
-        if updated.auth_type in (
-            MCPAuthType.service_identity,
-            MCPAuthType.custom_http,
-        ) and (service_fields_changed or previous_auth_type != updated.auth_type):
+        if (
+            not updated.uses_user_credentials
+            and updated.auth_type
+            in (
+                MCPAuthType.service_identity,
+                MCPAuthType.custom_http,
+            )
+            and (service_fields_changed or previous_auth_type != updated.auth_type)
+        ):
             existing = await self.repository.get_service_credential(server_id)
             provider = data.service_credential_provider or (
                 existing.provider if existing else None
@@ -762,9 +849,12 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         return MCPCatalogSyncResponse(**await mcp_catalog.sync_catalog())
 
     async def reset(self, server_id: UUID) -> dict:
-        await self.get(server_id)
+        server = await self.get(server_id)
         if self.workspace_id is None:
             raise RuntimeError("workspace_id is required")
+        if server.uses_user_credentials:
+            deleted = await self.repository.delete_user_credentials(server_id)
+            return {"deleted_keys": deleted}
         factory = TokenStorageFactory()
         deleted = await factory.clear_server_data(
             str(self.workspace_id), str(server_id)
@@ -774,22 +864,26 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
     async def list_connections(
         self, server_id: UUID
     ) -> list[MCPServerConnectionResponse]:
-        """Users holding a stored OAuth token for the server, with a coarse
-        token status: ``expired`` when the access token is past its expiry and
-        no refresh token can renew it, ``active`` otherwise."""
-        await self.get(server_id)
+        """Users holding a stored OAuth token (or their own API key / header
+        values) for the server, with a coarse token status: ``expired`` when
+        the access token is past its expiry and no refresh token can renew it,
+        ``active`` otherwise."""
+        server = await self.get(server_id)
         if self.workspace_id is None:
             raise RuntimeError("workspace_id is required")
         factory = TokenStorageFactory()
 
         user_ids: list[UUID] = []
-        for raw_id in await factory.list_connected_user_ids(
-            str(self.workspace_id), str(server_id)
-        ):
-            try:
-                user_ids.append(UUID(raw_id))
-            except ValueError:
-                continue
+        if server.uses_user_credentials:
+            user_ids = await self.repository.list_user_credential_user_ids(server_id)
+        else:
+            for raw_id in await factory.list_connected_user_ids(
+                str(self.workspace_id), str(server_id)
+            ):
+                try:
+                    user_ids.append(UUID(raw_id))
+                except ValueError:
+                    continue
 
         if self.workspace_id is not None:
             user_ids = [
@@ -803,6 +897,18 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
 
         connections: list[MCPServerConnectionResponse] = []
         for user_id in user_ids:
+            if server.uses_user_credentials:
+                user = users_by_id.get(user_id)
+                connections.append(
+                    MCPServerConnectionResponse(
+                        user_id=user_id,
+                        name=user.name if user else None,
+                        email=user.email if user else None,
+                        picture_url=user.picture_url if user else None,
+                        image_revision=user.image_revision if user else None,
+                    )
+                )
+                continue
             stored = await factory.get_storage(
                 str(self.workspace_id), str(user_id), str(server_id)
             ).get_stored_token()
@@ -834,7 +940,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         """Revoke one user's connection: clear their stored tokens, client
         info and OAuth metadata for the server. The user re-authenticates on
         their next use."""
-        await self.get(server_id)
+        server = await self.get(server_id)
         if self.workspace_id is None:
             raise RuntimeError("workspace_id is required")
         if (
@@ -842,6 +948,9 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             and await self.workspaces.get_membership(self.workspace_id, user_id) is None
         ):
             raise NotFoundError("User not found")
+        if server.uses_user_credentials:
+            deleted = await self.repository.delete_user_credential(server_id, user_id)
+            return {"deleted_keys": int(deleted)}
         factory = TokenStorageFactory()
         deleted = await factory.clear_user_server_data(
             str(self.workspace_id), str(user_id), str(server_id)
@@ -951,14 +1060,71 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             ]
         )
 
+    async def _forget_user_credential(
+        self, reference: MCPConnectionReference, user_id: UUID
+    ) -> MCPConnectionDisconnectSummary:
+        """Remove one user's own API key / header values. There is no provider
+        session to revoke: the secret stays valid at its issuer."""
+        if not await self.repository.delete_user_credential(
+            reference.server_id, user_id
+        ):
+            return MCPConnectionDisconnectSummary(already_absent=[reference])
+        return MCPConnectionDisconnectSummary(
+            disconnected=[
+                MCPDisconnectedConnection(
+                    **reference.model_dump(), provider_revocation="unsupported"
+                )
+            ]
+        )
+
+    async def is_connected(
+        self, server: MCPServerDB, user_id: str, *, refresh: bool = True
+    ) -> bool:
+        return await is_authorized(
+            server,
+            user_id,
+            server.workspace_id,
+            refresh=refresh,
+            repository=self.repository,
+        )
+
+    async def set_my_credentials(
+        self, server: MCPServerDB, user: UserDB, payload: PersonalCredentialsInput
+    ) -> None:
+        """Save the user's own secret for a personal server, once a handshake
+        with it succeeds, so a wrong key is caught here rather than mid-run."""
+        if not server.uses_user_credentials:
+            raise DomainValidationError(
+                "This MCP server does not take personal credentials"
+            )
+        plaintext = _user_credential_plaintext(server, payload)
+        is_api_key = server.auth_type == MCPAuthType.api_key
+        result = await probe_candidate(
+            server.url,
+            server.auth_type,
+            api_key=plaintext if is_api_key else None,
+            service_credential_provider=(
+                None if is_api_key else ServiceCredentialProvider.custom_http_headers
+            ),
+            service_credentials_json=None if is_api_key else plaintext,
+        )
+        if not result.reachable:
+            raise DomainValidationError(
+                f"Could not connect to {server.name} with these credentials"
+                + (f": {result.error}" if result.error else ".")
+            )
+        await self.repository.set_user_credential(server.id, user.id, plaintext)
+
     async def disconnect_my_connection(
         self, server_id: UUID, user: UserDB
     ) -> MCPConnectionDisconnectSummary:
         """Disconnect only the authenticated user's account for one server."""
         server = await self.get_visible(server_id, user)
         reference = MCPConnectionReference(server_id=server.id, server_name=server.name)
-        if server.auth_type != MCPAuthType.oauth2:
+        if not server.is_personal:
             return MCPConnectionDisconnectSummary(unaffected_shared=[reference])
+        if server.uses_user_credentials:
+            return await self._forget_user_credential(reference, user.id)
         return await self._disconnect_personal_connection(
             server_id=server.id,
             server_name=server.name,
@@ -972,13 +1138,42 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         *,
         current_client_id: str | None = None,
     ) -> MCPConnectionDisconnectSummary:
-        """Disconnect this user from every personal OAuth account in the workspace."""
+        """Disconnect this user from every personal account in the workspace:
+        OAuth connections and their own API keys / header values."""
         if self.workspace_id is None:
             raise RuntimeError("workspace_id is required")
 
         factory = TokenStorageFactory()
         visible = await self.list_responses(user)
         visible_by_id = {server.id: server for server in visible}
+
+        # Entered secrets live in Postgres: removed here, one by one, before
+        # the concurrent Redis work below (which must not share the session).
+        credential_ids = await self.repository.user_credential_server_ids(user.id)
+        credential_ids |= {
+            server.id
+            for server in visible
+            if stores_user_credentials(server.auth_type, server.credential_scope)
+        }
+        credential_rows = {
+            server.id: server
+            for server in await self.repository.list_by_ids(credential_ids)
+        }
+        credential_results = [
+            await self._forget_user_credential(
+                MCPConnectionReference(
+                    server_id=server_id,
+                    server_name=(
+                        credential_rows[server_id].name
+                        if server_id in credential_rows
+                        else "Unavailable MCP server"
+                    ),
+                ),
+                user.id,
+            )
+            for server_id in credential_ids
+        ]
+
         token_ids: set[UUID] = set()
         for raw_id in await factory.list_connected_server_ids(
             str(self.workspace_id), str(user.id)
@@ -996,7 +1191,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         visible_oauth_ids = {
             server.id for server in visible if server.auth_type == MCPAuthType.oauth2
         }
-        candidate_ids = token_ids | visible_oauth_ids
+        candidate_ids = (token_ids | visible_oauth_ids) - credential_ids
         rows = await self.repository.list_by_ids(candidate_ids)
         rows_by_id = {server.id: server for server in rows}
 
@@ -1004,9 +1199,12 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             unaffected_shared=[
                 MCPConnectionReference(server_id=server.id, server_name=server.name)
                 for server in visible
-                if server.auth_type != MCPAuthType.oauth2
+                if not is_personal_auth(server.auth_type, server.credential_scope)
             ]
         )
+        for result in credential_results:
+            summary.disconnected.extend(result.disconnected)
+            summary.already_absent.extend(result.already_absent)
 
         candidates: list[tuple[UUID, str, bool]] = []
         for server_id in candidate_ids:
@@ -1202,7 +1400,7 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
 
     async def list_tools(
         self, server: MCPServerDB, user_id: str
-    ) -> ToolsListed | AuthorizationRequired | ToolsUnavailable:
+    ) -> ToolsListed | AuthorizationRequired | CredentialsRequired | ToolsUnavailable:
         """This user's tools for `server`, or the authorize URL they need first.
 
         Both are ordinary answers, so both are ordinary return values: needing
@@ -1232,6 +1430,8 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
                         for tool in tools
                     ]
                 )
+        except PersonalCredentialsRequired:
+            return CredentialsRequired()
         except OAuthAuthorizationRequired as exc:
             # Also catches the *implicit* 401 — a stored token that the server
             # has since revoked only fails during the handshake, and the seam

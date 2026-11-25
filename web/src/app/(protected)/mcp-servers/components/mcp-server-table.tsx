@@ -25,7 +25,7 @@ import { useConfirmDialog } from "@/components/providers/dialog-provider";
 import { useDeleteMcpServer } from "@/hooks/use-delete-mcp-server";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useUserStore } from "@/stores/user-store";
-import { MCPServer } from "@/types/mcp-servers";
+import { isPersonalAuth, MCPServer } from "@/types/mcp-servers";
 import { getApiErrorMessage, toApiError } from "@/lib/api/errors";
 import { deleteDatabaseConnection } from "@/lib/api/resources/database-connections";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
@@ -37,6 +37,7 @@ import {
 } from "@/lib/resource-scope-filter";
 import { AuthTypeBadge } from "./auth-type-badge";
 import { OAuthConnectionFollowUpDialog } from "./oauth-connection-follow-up-dialog";
+import { PersonalCredentialsDialog } from "./personal-credentials-dialog";
 import { ServerIconTile } from "./server-icon-tile";
 import { useConnectionTest } from "../lib/use-connection-test";
 
@@ -68,6 +69,9 @@ function RowTestButton({ server }: { server: MCPServer }) {
 		setOauthFollowUpOpen,
 		runSavedTest,
 		verifySavedConnection,
+		credentialsServer,
+		closeCredentialsPrompt,
+		completeCredentials,
 	} = useConnectionTest();
 	const [isVerifying, setIsVerifying] = useState(false);
 
@@ -102,6 +106,13 @@ function RowTestButton({ server }: { server: MCPServer }) {
 				}}
 				isVerifying={isVerifying}
 				message={message === "Waiting for authentication…" ? null : message}
+			/>
+			<PersonalCredentialsDialog
+				server={credentialsServer}
+				onOpenChange={(open) => {
+					if (!open) closeCredentialsPrompt();
+				}}
+				onSaved={completeCredentials}
 			/>
 		</>
 	);
@@ -396,7 +407,10 @@ export default function MCPServerTable({
 			header: "Auth",
 			width: "110px",
 			mobileWidth: "auto",
-			cell: (server) => <AuthTypeBadge authType={server.authType} />,
+			cell: (server) => <AuthTypeBadge
+				authType={server.authType}
+				credentialScope={server.credentialScope}
+			/>,
 		},
 		{
 			key: "visibility",
@@ -441,7 +455,7 @@ export default function MCPServerTable({
 												},
 											]
 										: [
-										...(server.authType === "oauth2"
+										...(isPersonalAuth(server)
 											? [
 													{
 														label: "Reset connections",
@@ -671,7 +685,10 @@ export default function MCPServerTable({
 											{server.name}
 										</h2>
 										<div className="mt-1 flex flex-wrap items-center gap-1.5">
-											<AuthTypeBadge authType={server.authType} />
+											<AuthTypeBadge
+				authType={server.authType}
+				credentialScope={server.credentialScope}
+			/>
 											<VisibilityBadge
 												visibility={server.visibility ?? "workspace"}
 												teamIds={server.teamIds}
@@ -707,7 +724,7 @@ export default function MCPServerTable({
 																},
 															]
 														: [
-														...(server.authType === "oauth2"
+														...(isPersonalAuth(server)
 															? [
 																	{
 																		label: "Reset connections",

@@ -9,12 +9,14 @@ from sqlmodel import select
 
 from app.agents.models import AgentDB, AgentMCPServerDB
 from app.mcp.servers.models import (
+    MCPCredentialScope,
     MCPServerAPIKeyDB,
     MCPServerDB,
     MCPServerImageDB,
     MCPServerOAuthCredentialsDB,
     MCPServerServiceCredentialDB,
     MCPServerTeamDB,
+    MCPServerUserCredentialDB,
     ServiceCredentialProvider,
 )
 from app.mcp.servers.schemas import MCPServerCreate
@@ -368,6 +370,89 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
         )
         await self.db.execute(stmt)
         await self.db.flush()
+
+    async def set_credential_config(
+        self,
+        server: MCPServerDB,
+        *,
+        scope: MCPCredentialScope,
+        personal_header_names: list[str],
+    ) -> None:
+        server.credential_scope = scope
+        server.personal_header_names = personal_header_names
+        self.db.add(server)
+        await self.db.flush()
+
+    async def get_user_credential(self, server_id: UUID, user_id: UUID) -> str | None:
+        """One user's decrypted secret for a personal server, if entered."""
+        stmt = select(MCPServerUserCredentialDB.credentials_encrypted).where(
+            MCPServerUserCredentialDB.mcp_server_id == server_id,
+            MCPServerUserCredentialDB.user_id == user_id,
+        )
+        encrypted = (await self.db.execute(stmt)).scalar_one_or_none()
+        return decrypt_value(encrypted) if encrypted is not None else None
+
+    async def set_user_credential(
+        self, server_id: UUID, user_id: UUID, plaintext: str
+    ) -> None:
+        stmt = select(MCPServerUserCredentialDB).where(
+            MCPServerUserCredentialDB.mcp_server_id == server_id,
+            MCPServerUserCredentialDB.user_id == user_id,
+        )
+        row = (await self.db.execute(stmt)).scalar_one_or_none()
+        if row is None:
+            row = MCPServerUserCredentialDB(
+                mcp_server_id=server_id,
+                user_id=user_id,
+                credentials_encrypted=encrypt_value(plaintext),
+            )
+        else:
+            row.credentials_encrypted = encrypt_value(plaintext)
+        self.db.add(row)
+        await self.db.flush()
+
+    async def delete_user_credential(self, server_id: UUID, user_id: UUID) -> bool:
+        stmt = delete(MCPServerUserCredentialDB).where(
+            MCPServerUserCredentialDB.mcp_server_id == server_id,
+            MCPServerUserCredentialDB.user_id == user_id,
+        )
+        result = await self.db.execute(stmt)
+        await self.db.flush()
+        return bool(result.rowcount)
+
+    async def delete_user_credentials(self, server_id: UUID) -> int:
+        """Drop every user's secret for a server, returning how many."""
+        stmt = delete(MCPServerUserCredentialDB).where(
+            MCPServerUserCredentialDB.mcp_server_id == server_id
+        )
+        result = await self.db.execute(stmt)
+        await self.db.flush()
+        return int(result.rowcount or 0)
+
+    async def list_user_credential_user_ids(self, server_id: UUID) -> list[UUID]:
+        stmt = select(MCPServerUserCredentialDB.user_id).where(
+            MCPServerUserCredentialDB.mcp_server_id == server_id
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    async def user_credential_server_ids(
+        self, user_id: UUID, server_ids: Collection[UUID] | None = None
+    ) -> set[UUID]:
+        """The servers (in this workspace) a user has entered a secret for,
+        optionally narrowed to ``server_ids``."""
+        if server_ids is not None and not server_ids:
+            return set()
+        stmt = self._scope(
+            select(MCPServerUserCredentialDB.mcp_server_id)
+            .join(
+                MCPServerDB,
+                MCPServerDB.id == MCPServerUserCredentialDB.mcp_server_id,
+            )
+            .where(MCPServerUserCredentialDB.user_id == user_id)
+        )
+        if server_ids is not None:
+            stmt = stmt.where(MCPServerUserCredentialDB.mcp_server_id.in_(server_ids))
+        return set((await self.db.execute(stmt)).scalars().all())
 
     async def count_by_url(self) -> dict[str, int]:
         """Count configured instances per catalog endpoint in this workspace."""

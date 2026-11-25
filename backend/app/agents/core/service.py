@@ -202,6 +202,9 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
                 ),
                 image_revision=server.image_revision,
                 description=server.description,
+                auth_type=server.auth_type,
+                credential_scope=server.credential_scope,
+                personal_header_names=server.personal_header_names,
                 tool_names=tool_names_by_id.get(server_id, []),
                 configured=configured_by_id[server_id],
                 enabled_by_default=all(
@@ -1829,7 +1832,9 @@ class AgentService(BaseService[AgentDB, AgentRepository]):
 
         if self.workspace_id is None:
             raise RuntimeError("workspace_id is required for MCP authorization")
-        authorized = await probe_authorization(servers, user_id, self.workspace_id)
+        authorized = await probe_authorization(
+            servers, user_id, self.workspace_id, repository=self.mcp_servers
+        )
         disconnected = [
             str(server.id) for server in servers if not authorized.get(server.id, True)
         ]

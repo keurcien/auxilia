@@ -14,7 +14,13 @@ from app.agents.schemas import (
     AgentMCPServerPatch,
 )
 from app.exceptions import NotFoundError
-from app.mcp.servers.models import MCPAuthType
+from app.mcp.servers.models import (
+    MCPAuthType,
+    MCPCredentialScope,
+    credential_scope_for,
+    is_personal_auth,
+    stores_user_credentials,
+)
 from tests.conftest import TEST_WORKSPACE_ID
 
 
@@ -81,6 +87,13 @@ def make_mcp_server(auth_type=MCPAuthType.none, **kwargs):
     server.name = kwargs.get("name", "Test Server")
     server.url = kwargs.get("url", "https://mcp.example.com")
     server.auth_type = auth_type
+    server.credential_scope = credential_scope_for(
+        auth_type, kwargs.get("credential_scope", MCPCredentialScope.shared)
+    )
+    server.is_personal = is_personal_auth(auth_type, server.credential_scope)
+    server.uses_user_credentials = stores_user_credentials(
+        auth_type, server.credential_scope
+    )
     return server
 
 

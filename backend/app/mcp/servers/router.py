@@ -15,12 +15,13 @@ from app.mcp.client.auth import (
     oauth_callback_url,
     oauth_client_metadata_document_url,
 )
-from app.mcp.client.connectivity import is_authorized, probe_candidate, test_connection
+from app.mcp.client.connectivity import probe_candidate, test_connection
 from app.mcp.servers.models import MCPServerDB
 from app.mcp.servers.schemas import (
     AuthorizationRequired,
     ConnectionProbeRequest,
     ConnectionTestResult,
+    CredentialsRequired,
     ListToolsResult,
     MCPCatalogSyncResponse,
     MCPConnectionDisconnectSummary,
@@ -34,6 +35,7 @@ from app.mcp.servers.schemas import (
     OAuthManualCallbackResponse,
     OAuthSecretHint,
     OfficialMCPServerResponse,
+    PersonalCredentialsInput,
     ToolsListed,
     ToolsUnavailable,
 )
@@ -347,13 +349,14 @@ async def list_tools(
     mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
     current_user: UserDB = Depends(get_current_user),
     service: MCPServerService = Depends(get_mcp_server_service),
-) -> ToolsListed | AuthorizationRequired | ToolsUnavailable:
+) -> ToolsListed | AuthorizationRequired | CredentialsRequired | ToolsUnavailable:
     """List available tools from an MCP server.
 
     Returns a discriminated union on `status`: `ok` with the tools,
-    `auth_required` with the URL the user must open, or `error` with a safe,
-    actionable connection diagnostic. All are 200 responses because this
-    endpoint's job includes discovering the connection state.
+    `auth_required` with the URL the user must open, `credentials_required`
+    when the user must enter their own API key or header values, or `error`
+    with a safe, actionable connection diagnostic. All are 200 responses
+    because this endpoint's job includes discovering the connection state.
 
     Goes through the MCP SDK transport (`ClientSession`). The raw-HTTP bypass
     this docstring used to describe was removed; the upstream GET-SSE deadlock it
@@ -371,21 +374,35 @@ async def is_connected(
     ),
     mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
     current_user: UserDB = Depends(get_current_user),
+    service: MCPServerService = Depends(get_mcp_server_service),
 ):
     """Whether the current user holds a usable credential for the server.
 
     OAuth servers count as connected when a token exists; with ``refresh=true``
-    (the default) an expired-but-refreshable token is refreshed first. This is a
-    credential check, not a handshake — use ``/test-connection`` to probe the
-    server itself.
+    (the default) an expired-but-refreshable token is refreshed first. Personal
+    API-key and custom HTTP servers count once the user has entered their own
+    secret. This is a credential check, not a handshake — use
+    ``/test-connection`` to probe the server itself.
     """
-    connected = await is_authorized(
-        mcp_server,
-        str(current_user.id),
-        mcp_server.workspace_id,
-        refresh=refresh,
+    connected = await service.is_connected(
+        mcp_server, str(current_user.id), refresh=refresh
     )
     return {"connected": connected}
+
+
+@router.put("/{server_id}/my-credentials")
+async def set_my_mcp_credentials(
+    payload: PersonalCredentialsInput,
+    mcp_server: MCPServerDB = Depends(get_mcp_server_dependency),
+    current_user: UserDB = Depends(get_current_user),
+    service: MCPServerService = Depends(get_mcp_server_service),
+):
+    """Save the caller's own API key or header values for a personal server.
+
+    The credentials are checked with a real handshake before they are stored.
+    """
+    await service.set_my_credentials(mcp_server, current_user, payload)
+    return {"connected": True}
 
 
 @router.post("/test-connection", response_model=ConnectionTestResult)

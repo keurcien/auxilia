@@ -1,9 +1,16 @@
-import { MCPAuthType } from "@/types/mcp-servers";
+import {
+	MCPAuthType,
+	MCPCredentialScope,
+	usesUserCredentials,
+} from "@/types/mcp-servers";
 import { cn } from "@/lib/utils";
 
 // Exhaustive switch (not a keyed lookup) so static analysis can verify the
 // access — the union type guarantees every case is covered.
-function badgeFor(authType: MCPAuthType): { label: string; className: string } {
+function badgeFor(
+	authType: MCPAuthType,
+	personal: boolean,
+): { label: string; className: string } {
 	switch (authType) {
 		case "oauth2":
 			return {
@@ -13,9 +20,10 @@ function badgeFor(authType: MCPAuthType): { label: string; className: string } {
 			};
 		case "api_key":
 			return {
-				label: "API Key Bearer",
-				className:
-					"bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body",
+				label: personal ? "Personal API key" : "API Key Bearer",
+				className: personal
+					? "bg-[#E7F0FA] text-[#2E6FA8] dark:bg-sky-950 dark:text-sky-300"
+					: "bg-neutral-bg text-subtle dark:bg-white/10 dark:text-panel-body",
 			};
 		case "service_identity":
 			return {
@@ -25,9 +33,10 @@ function badgeFor(authType: MCPAuthType): { label: string; className: string } {
 			};
 		case "custom_http":
 			return {
-				label: "Custom HTTP",
-				className:
-					"bg-[#F3ECE2] text-[#805A2F] dark:bg-amber-950 dark:text-amber-300",
+				label: personal ? "Personal HTTP" : "Custom HTTP",
+				className: personal
+					? "bg-[#E7F0FA] text-[#2E6FA8] dark:bg-sky-950 dark:text-sky-300"
+					: "bg-[#F3ECE2] text-[#805A2F] dark:bg-amber-950 dark:text-amber-300",
 			};
 		case "none":
 			return {
@@ -38,15 +47,21 @@ function badgeFor(authType: MCPAuthType): { label: string; className: string } {
 	}
 }
 
-/** Mono-caps auth chip: OAUTH 2.0 (blue) · API KEY / OPEN (neutral). */
+/** Auth chip. Personal methods (each user brings their own credential) share
+ * the OAuth blue; shared ones keep their own tint. */
 export function AuthTypeBadge({
 	authType,
+	credentialScope,
 	className,
 }: {
 	authType: MCPAuthType;
+	credentialScope?: MCPCredentialScope;
 	className?: string;
 }) {
-	const badge = badgeFor(authType);
+	const badge = badgeFor(
+		authType,
+		usesUserCredentials({ authType, credentialScope }),
+	);
 	return (
 		<span
 			className={cn(

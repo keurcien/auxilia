@@ -8,9 +8,10 @@ need to open a session or check authorization don't drag in the full service.
 Two distinct questions live here, deliberately kept apart:
 
 * **authorized** (:func:`is_authorized`) — does the user hold a usable
-  credential? For ``none``/``api_key`` this is always true (there is no per-user
-  credential); for ``oauth2`` it means a stored token exists, optionally
-  refreshed when expired. No handshake is performed.
+  credential? For shared servers this is always true (there is no per-user
+  credential); for personal API-key / custom HTTP servers it means the user has
+  entered their own secret; for ``oauth2`` it means a stored token exists,
+  optionally refreshed when expired. No handshake is performed.
 * **reachable** (:func:`test_connection` / :func:`probe_candidate`) — does an
   actual MCP handshake succeed? This is the only real network probe.
 """
@@ -37,7 +38,10 @@ from app.mcp.client.auth import (
     resolve_oauth_redirect_strategy,
 )
 from app.mcp.client.connection import ConnectionSpec, open_client
-from app.mcp.client.exceptions import OAuthAuthorizationRequired
+from app.mcp.client.exceptions import (
+    OAuthAuthorizationRequired,
+    PersonalCredentialsRequired,
+)
 from app.mcp.client.service_credentials import (
     ServiceCredentialConfig,
     build_service_auth,
@@ -228,9 +232,15 @@ async def resolve_connection(
             if api_keys is not None and server.id in api_keys:
                 key = api_keys[server.id]
             else:
-                key = await repository.get_api_key(server.id)
+                key = (
+                    await repository.get_user_credential(server.id, UUID(user_id))
+                    if server.uses_user_credentials
+                    else await repository.get_api_key(server.id)
+                )
                 if api_keys is not None:
                     api_keys[server.id] = key
+            if not key and server.uses_user_credentials:
+                raise PersonalCredentialsRequired(server.name)
             if not key:
                 # Used to send `Authorization: Bearer None`, which the server
                 # answers with an opaque 401 — say what is actually wrong.
@@ -283,6 +293,21 @@ async def resolve_connection(
             memo = credentials.service if credentials is not None else None
             if memo is not None and server.id in memo:
                 config = memo[server.id]
+            elif server.uses_user_credentials:
+                document = await repository.get_user_credential(
+                    server.id, UUID(user_id)
+                )
+                config = (
+                    service_credential_config(
+                        provider=ServiceCredentialProvider.custom_http_headers,
+                        credentials_json=document,
+                        scopes=(),
+                    )
+                    if document is not None
+                    else None
+                )
+                if memo is not None:
+                    memo[server.id] = config
             else:
                 row = await repository.get_service_credential(server.id)
                 config = (
@@ -296,6 +321,8 @@ async def resolve_connection(
                 )
                 if memo is not None:
                     memo[server.id] = config
+            if config is None and server.uses_user_credentials:
+                raise PersonalCredentialsRequired(server.name)
             if config is None:
                 raise DomainValidationError(
                     f"MCP server '{server.name}' is configured for "
@@ -368,15 +395,29 @@ async def connect_to_server(
 
 
 async def is_authorized(
-    server: MCPServerDB, user_id: str, workspace_id: UUID, *, refresh: bool = True
+    server: MCPServerDB,
+    user_id: str,
+    workspace_id: UUID,
+    *,
+    refresh: bool = True,
+    repository: MCPServerRepository | None = None,
 ) -> bool:
     """Return whether the user holds a usable credential for the server.
 
-    ``none``/``api_key`` servers need no per-user credential and are always
-    authorized. For ``oauth2``, a stored token counts; with ``refresh=True``
-    (the default) an expired-but-refreshable token is refreshed and still counts.
+    Shared servers need no per-user credential and are always authorized. A
+    personal API-key or custom HTTP server counts once the user has entered
+    their secret (``repository`` is required to look it up). For ``oauth2``, a
+    stored token counts; with ``refresh=True`` (the default) an
+    expired-but-refreshable token is refreshed and still counts.
     No handshake is performed — use :func:`test_connection` for a real probe.
     """
+    if server.uses_user_credentials:
+        if repository is None:
+            raise RuntimeError("A repository is required to check user credentials")
+        return server.id in await repository.user_credential_server_ids(
+            UUID(user_id), [server.id]
+        )
+
     if server.auth_type in (
         MCPAuthType.none,
         MCPAuthType.api_key,
@@ -427,7 +468,11 @@ def _probe_cache_key(workspace_id: UUID, user_id: str, server_id: UUID) -> str:
 
 
 async def probe_authorization(
-    servers: Collection[MCPServerDB], user_id: str, workspace_id: UUID
+    servers: Collection[MCPServerDB],
+    user_id: str,
+    workspace_id: UUID,
+    *,
+    repository: MCPServerRepository | None = None,
 ) -> dict[UUID, bool]:
     """Whether the user is authorized for each server — concurrent, fail-open,
     and memoized per (user, server).
@@ -443,12 +488,31 @@ async def probe_authorization(
 
     Probes are independent per (user, server), so they run concurrently: the
     check costs one round trip, not one per server.
+
+    Personal API-key and custom HTTP servers are answered first, from one
+    query through ``repository`` (required when any are present): it is a
+    cheap row lookup, and the concurrent OAuth probes must not share the
+    session.
     """
     if not servers:
         return {}
 
-    redis = get_redis()
     unique = {server.id: server for server in servers}
+    results: dict[UUID, bool] = {}
+    user_entered = [s.id for s in unique.values() if s.uses_user_credentials]
+    if user_entered:
+        if repository is None:
+            raise RuntimeError("A repository is required to check user credentials")
+        entered = await repository.user_credential_server_ids(
+            UUID(user_id), user_entered
+        )
+        for server_id in user_entered:
+            results[server_id] = server_id in entered
+            del unique[server_id]
+    if not unique:
+        return results
+
+    redis = get_redis()
 
     try:
         async with asyncio.timeout(_CACHE_TIMEOUT_SECONDS):
@@ -459,7 +523,6 @@ async def probe_authorization(
         logger.warning("Authorization probe cache read failed", exc_info=True)
         cached = [None] * len(unique)
 
-    results: dict[UUID, bool] = {}
     to_probe: list[MCPServerDB] = []
     for (server_id, server), hit in zip(unique.items(), cached, strict=True):
         if hit == "1":
@@ -556,6 +619,10 @@ async def test_connection(
                 tool_count=len(tools),
                 tool_names=[tool.name for tool in tools],
             )
+    except PersonalCredentialsRequired as e:
+        return ConnectionTestResult(
+            reachable=False, credentials_required=True, error=e.detail
+        )
     except OAuthAuthorizationRequired as e:
         # e.g. a revoked-but-unexpired token: surface as re-authorization needed
         # so the caller can restart the OAuth flow rather than see a raw error.

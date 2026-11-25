@@ -21,6 +21,7 @@ import type {
 	OAuthManualCallbackResponse,
 	OAuthSecretHint,
 	OfficialMCPServer,
+	PersonalCredentialsInput,
 	ServiceCredentialProvider,
 } from "@/types/mcp-servers";
 
@@ -107,6 +108,17 @@ export async function isMcpServerConnected(serverId: string): Promise<boolean> {
 		`/mcp-servers/${serverId}/is-connected`,
 	);
 	return Boolean(response.data.connected);
+}
+
+/**
+ * Save the caller's own API key or header values for a personal server. The
+ * backend checks them with a real handshake first and rejects bad ones (400).
+ */
+export async function setMyMcpCredentials(
+	serverId: string,
+	credentials: PersonalCredentialsInput,
+): Promise<void> {
+	await api.put(`/mcp-servers/${serverId}/my-credentials`, credentials);
 }
 
 /** Public redirect URI to register in an OAuth provider application. */

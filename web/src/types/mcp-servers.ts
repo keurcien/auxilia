@@ -2,6 +2,9 @@ import type { ResourceVisibility } from "./visibility";
 
 export type MCPAuthType =
 	"none" | "api_key" | "oauth2" | "service_identity" | "custom_http";
+/** `personal`: every user authenticates with their own account or secret.
+ * `shared`: one credential configured on the server, used by everyone. */
+export type MCPCredentialScope = "shared" | "personal";
 export type OAuthRedirectMode = "hosted_callback" | "loopback_manual";
 export type ServiceCredentialProvider =
 	| "google_service_account"
@@ -16,6 +19,9 @@ export interface MCPServer {
 	name: string;
 	url: string;
 	authType: MCPAuthType;
+	credentialScope?: MCPCredentialScope;
+	// Header names each user fills in for a personal custom HTTP server.
+	personalHeaderNames?: string[];
 	iconUrl?: string;
 	imageRevision?: string | null;
 	description?: string;
@@ -36,6 +42,21 @@ export interface MCPServer {
 	serviceCredentialScopes?: string[];
 }
 
+type MCPServerAuthShape = Pick<MCPServer, "authType" | "credentialScope">;
+
+/** Each user enters their own API key or header values (stored per user). */
+export function usesUserCredentials(server: MCPServerAuthShape): boolean {
+	return (
+		server.credentialScope === "personal" &&
+		(server.authType === "api_key" || server.authType === "custom_http")
+	);
+}
+
+/** Each user authenticates with their own account or secret. */
+export function isPersonalAuth(server: MCPServerAuthShape): boolean {
+	return server.authType === "oauth2" || usesUserCredentials(server);
+}
+
 export interface MCPServerCreate {
 	name: string;
 	url: string;
@@ -45,6 +66,10 @@ export interface MCPServerCreate {
 	group?: string | null;
 	visibility?: ResourceVisibility;
 	teamIds?: string[];
+	credentialScope?: MCPCredentialScope;
+	personalHeaderNames?: string[];
+	// The creator's own secret for a personal server, saved as their connection.
+	personalCredentials?: PersonalCredentialsInput;
 	apiKey?: string;
 	// OAuth credentials for pre-registered OAuth clients
 	oauthClientId?: string;
@@ -52,6 +77,12 @@ export interface MCPServerCreate {
 	serviceCredentialProvider?: ServiceCredentialProvider;
 	serviceCredentialsJson?: string;
 	serviceCredentialScopes?: string[];
+}
+
+/** One user's own secret for a personal API-key or custom HTTP server. */
+export interface PersonalCredentialsInput {
+	apiKey?: string;
+	headers?: { name: string; value: string }[];
 }
 
 export interface MCPServerUpdate {
@@ -72,6 +103,8 @@ export interface MCPServerUpdate {
 	serviceCredentialProvider?: ServiceCredentialProvider;
 	serviceCredentialsJson?: string;
 	serviceCredentialScopes?: string[];
+	// Changing them clears every user's stored header values.
+	personalHeaderNames?: string[];
 	disabledTools?: string[];
 }
 
@@ -114,6 +147,8 @@ export type ListToolsResult =
 			oauthRedirectMode: OAuthRedirectMode;
 			oauthSignInUrl?: string | null;
 	  }
+	// A personal API-key or custom HTTP server this user has no secret for yet.
+	| { status: "credentials_required" }
 	| MCPToolLoadError;
 
 export interface ConnectionTestResult {
@@ -121,6 +156,7 @@ export interface ConnectionTestResult {
 	toolCount?: number | null;
 	toolNames?: string[] | null;
 	oauthRequired: boolean;
+	credentialsRequired?: boolean;
 	authUrl?: string | null;
 	oauthRedirectMode: OAuthRedirectMode;
 	oauthSignInUrl?: string | null;

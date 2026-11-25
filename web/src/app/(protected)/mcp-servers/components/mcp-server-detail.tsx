@@ -23,11 +23,13 @@ import { cn } from "@/lib/utils";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import { useUserStore } from "@/stores/user-store";
 import {
+	isPersonalAuth,
 	MCPServer,
 	MCPServerUpdate,
 	OAuthSecretHint,
 	OfficialMCPServer,
 	ServiceCredentialProvider,
+	usesUserCredentials,
 } from "@/types/mcp-servers";
 import { AuthTypeBadge } from "./auth-type-badge";
 import type { ResourceVisibility } from "@/types/visibility";
@@ -37,6 +39,8 @@ import { MCPServerToolsPanel } from "./mcp-server-tools-panel";
 import { MCPServerUrlField } from "./mcp-server-url-field";
 import { OAuthCallbackUrl } from "./oauth-callback-url";
 import { OAuthConnectionFollowUpDialog } from "./oauth-connection-follow-up-dialog";
+import { PersonalCredentialsDialog } from "./personal-credentials-dialog";
+import { PersonalHeaderNamesField } from "./personal-header-names-field";
 import { ServerIconTile } from "./server-icon-tile";
 import { ServiceIdentityFields } from "./service-identity-fields";
 import {
@@ -48,6 +52,7 @@ import { isOfficialIcon, slugify } from "../lib/constants";
 import {
 	buildServiceCredentialsPayload,
 	parseServiceCredentialScopes,
+	validatePersonalHeaderNames,
 	validateServiceHeaders,
 } from "../lib/mcp-server-create-form";
 import { useConnectionTest } from "../lib/use-connection-test";
@@ -90,6 +95,7 @@ interface EditFormValues {
 	serviceCredentialScopes: string;
 	serviceCredentialFields: ServiceCredentialFields;
 	serviceHeaders: { name: string; value: string }[];
+	personalHeaderNames: string[];
 }
 
 function formFromServer(server: MCPServer): EditFormValues {
@@ -114,6 +120,7 @@ function formFromServer(server: MCPServer): EditFormValues {
 			"https://www.googleapis.com/auth/cloud-platform",
 		serviceCredentialFields: { ...EMPTY_SERVICE_CREDENTIAL_FIELDS },
 		serviceHeaders: [{ name: "", value: "" }],
+		personalHeaderNames: server.personalHeaderNames ?? [],
 	};
 }
 
@@ -221,7 +228,11 @@ export default function MCPServerDetail({
 		runSavedTest,
 		verifySavedConnection,
 		runCandidateTest,
+		credentialsServer: testCredentialsServer,
+		closeCredentialsPrompt,
+		completeCredentials,
 	} = useConnectionTest();
+	const userEntered = usesUserCredentials(server);
 
 	useEffect(() => {
 		const controller = new AbortController();
@@ -353,7 +364,7 @@ export default function MCPServerDetail({
 		const serviceCredentialsJson = buildServiceCredentialsPayload(form);
 		const useSavedTest =
 			!editing ||
-			server.authType === "oauth2" ||
+			isPersonalAuth(server) ||
 			(server.authType === "api_key" && !form.apiKey.trim()) ||
 			((server.authType === "service_identity" ||
 				server.authType === "custom_http") &&
@@ -432,7 +443,12 @@ export default function MCPServerDetail({
 				if (providerError) errors.serviceCredentialsJson = providerError;
 			}
 		}
-		if (server.authType === "custom_http") {
+		if (server.authType === "custom_http" && userEntered) {
+			const headerError = validatePersonalHeaderNames(
+				form.personalHeaderNames,
+			);
+			if (headerError) errors.personalHeaderNames = headerError;
+		} else if (server.authType === "custom_http") {
 			const hasHeaders = form.serviceHeaders.some((header) =>
 				header.name.trim(),
 			);
@@ -455,6 +471,10 @@ export default function MCPServerDetail({
 							form.serviceCredentialFields,
 							form.serviceCredentialsJson,
 						);
+			const usesSharedServiceCredential =
+				!userEntered &&
+				(server.authType === "service_identity" ||
+					server.authType === "custom_http");
 			const payload: MCPServerUpdate = {
 				name: form.name,
 				url: form.url,
@@ -468,8 +488,12 @@ export default function MCPServerDetail({
 				// Credentials are sent only when the field was filled in; a blank
 				// field keeps the stored secret untouched.
 				apiKey:
-					server.authType === "api_key" && form.apiKey
+					server.authType === "api_key" && !userEntered && form.apiKey
 						? form.apiKey
+						: undefined,
+				personalHeaderNames:
+					userEntered && server.authType === "custom_http"
+						? form.personalHeaderNames.map((name) => name.trim())
 						: undefined,
 				oauthClientId:
 					server.authType === "oauth2" && resetOauthCredentials
@@ -483,26 +507,20 @@ export default function MCPServerDetail({
 						: server.authType === "oauth2" && form.oauthClientSecret
 							? form.oauthClientSecret
 							: undefined,
-				serviceCredentialProvider:
-					server.authType === "service_identity" ||
-					server.authType === "custom_http"
-						? server.authType === "custom_http"
-							? "custom_http_headers"
-							: form.serviceCredentialProvider
-						: undefined,
+				serviceCredentialProvider: usesSharedServiceCredential
+					? server.authType === "custom_http"
+						? "custom_http_headers"
+						: form.serviceCredentialProvider
+					: undefined,
 				serviceCredentialsJson:
-					(server.authType === "service_identity" ||
-						server.authType === "custom_http") &&
-					hasServiceCredentialReplacement
+					usesSharedServiceCredential && hasServiceCredentialReplacement
 						? buildServiceCredentialsPayload(form)
 						: undefined,
-				serviceCredentialScopes:
-					server.authType === "service_identity" ||
-					server.authType === "custom_http"
-						? server.authType === "service_identity"
-							? parseServiceCredentialScopes(form.serviceCredentialScopes)
-							: []
-						: undefined,
+				serviceCredentialScopes: usesSharedServiceCredential
+					? server.authType === "service_identity"
+						? parseServiceCredentialScopes(form.serviceCredentialScopes)
+						: []
+					: undefined,
 				disabledTools,
 			};
 			let updated = await updateMcpServer(server.id, payload);
@@ -628,10 +646,12 @@ export default function MCPServerDetail({
 	const isOauth = server.authType === "oauth2";
 	const busy = isSubmitting || isResetting;
 
+	const credentialsServer = userEntered ? server : undefined;
 	const secondaryPanel = editing ? (
 		<MCPServerToolsPanel
 			key={`${server.id}-${toolsRefreshRequest}`}
 			serverId={server.id}
+			credentialsServer={credentialsServer}
 			disabledTools={disabledTools}
 			onDisabledToolsChange={setDisabledTools}
 			disabled={busy}
@@ -660,13 +680,17 @@ export default function MCPServerDetail({
 				<MCPServerToolsPanel
 					key={`${server.id}-${toolsRefreshRequest}`}
 					serverId={server.id}
+					credentialsServer={credentialsServer}
 					disabledTools={server.disabledTools ?? []}
 					readOnly
 				/>
 			) : (
 				<ConnectedUsersPanel
 					serverId={server.id}
+					serverName={server.name}
 					authType={server.authType}
+					credentialScope={server.credentialScope}
+					personalHeaderNames={server.personalHeaderNames}
 					isAdmin={isAdmin}
 					onResetAll={handleReset}
 					onReconnect={() => {
@@ -727,7 +751,7 @@ export default function MCPServerDetail({
 								</HeaderButton>
 								<DropdownMenu
 									items={[
-										...(isOauth
+										...(isPersonalAuth(server)
 											? [
 													{
 														label: "Reset connections",
@@ -768,7 +792,10 @@ export default function MCPServerDetail({
 								<h1 className="font-display text-[26px] font-bold tracking-[-0.03em] text-foreground">
 									{server.name}
 								</h1>
-								<AuthTypeBadge authType={server.authType} />
+								<AuthTypeBadge
+									authType={server.authType}
+									credentialScope={server.credentialScope}
+								/>
 								{isOfficialIcon(server.iconUrl) && (
 									<span className="rounded-[4px] bg-hover px-[9px] py-[3px] text-[11px] font-semibold text-subtle dark:bg-white/10 dark:text-panel-body">
 										Official
@@ -854,13 +881,31 @@ export default function MCPServerDetail({
 							</ConfigRow>
 							<ConfigRow
 								label="Authentication method"
-								last={server.authType === "none"}
+								last={
+									server.authType === "none" ||
+									(userEntered && server.authType === "api_key")
+								}
 							>
 								<span className="text-[13.5px] text-foreground">
 									{AUTH_TYPE_LABELS[server.authType]}
+									<span className="text-meta dark:text-panel-dim">
+										{isPersonalAuth(server)
+											? " (personal: each user connects)"
+											: server.authType === "none"
+												? ""
+												: " (shared by everyone)"}
+									</span>
 								</span>
 							</ConfigRow>
-							{server.authType === "api_key" && (
+							{userEntered && server.authType === "custom_http" && (
+								<ConfigRow label="Personal headers" last>
+									<span className="break-all font-mono text-[12px] text-foreground">
+										{(server.personalHeaderNames ?? []).join(", ") ||
+											"Not configured"}
+									</span>
+								</ConfigRow>
+							)}
+							{server.authType === "api_key" && !userEntered && (
 								<ConfigRow label="API Key Bearer" last>
 									<span className="inline-flex items-center gap-2.5">
 										<span className="font-mono text-[12px] text-subtle dark:text-panel-dim">
@@ -907,7 +952,8 @@ export default function MCPServerDetail({
 								</>
 							)}
 							{(server.authType === "service_identity" ||
-								server.authType === "custom_http") && (
+								server.authType === "custom_http") &&
+								!userEntered && (
 								<>
 									<ConfigRow label="Credential provider">
 										<span className="text-[13.5px] text-foreground">
@@ -1080,12 +1126,44 @@ export default function MCPServerDetail({
 							<div className="flex flex-col gap-1">
 								<span className={LABEL_CLASS}>Authentication method</span>
 								<span className="text-[13.5px] text-subtle dark:text-panel-body">
+									{userEntered ? "Personal " : ""}
 									{AUTH_TYPE_LABELS[server.authType]}, can&apos;t be changed
 									after creation
 								</span>
 							</div>
 
-							{server.authType === "api_key" && (
+							{userEntered && server.authType === "api_key" && (
+								<div className="text-[12.5px] leading-[1.55] text-meta dark:text-panel-dim">
+									Each user enters their own API key when they connect. There
+									is no shared key to manage here.
+								</div>
+							)}
+
+							{userEntered && server.authType === "custom_http" && (
+								<div className="flex flex-col gap-3 rounded-xl border border-border bg-sidebar p-[18px] dark:bg-white/5">
+									<PersonalHeaderNamesField
+										names={form.personalHeaderNames}
+										onChange={(names) => {
+											setForm((current) => ({
+												...current,
+												personalHeaderNames: names,
+											}));
+											setFieldErrors((current) => ({
+												...current,
+												personalHeaderNames: undefined,
+											}));
+										}}
+										error={fieldErrors.personalHeaderNames}
+										inputClassName={MONO_INPUT_CLASS}
+									/>
+									<span className="text-[12px] text-meta dark:text-panel-dim">
+										Each user fills in their own values. Changing the header
+										names deletes every user&apos;s saved values.
+									</span>
+								</div>
+							)}
+
+							{server.authType === "api_key" && !userEntered && (
 								<div className="flex flex-col gap-[7px]">
 									<label htmlFor="mcp-edit-api-key" className={LABEL_CLASS}>
 										API Key Bearer
@@ -1228,7 +1306,8 @@ export default function MCPServerDetail({
 							)}
 
 							{(server.authType === "service_identity" ||
-								server.authType === "custom_http") && (
+								server.authType === "custom_http") &&
+								!userEntered && (
 								<div className="flex flex-col gap-[18px] rounded-xl border border-border bg-sidebar p-[18px] dark:bg-white/5">
 									<div className="text-[12.5px] leading-[1.55] text-meta dark:text-panel-dim">
 										The stored credential is write-only. Providing a replacement
@@ -1392,7 +1471,7 @@ export default function MCPServerDetail({
 								>
 									Delete server
 								</button>
-								{isOauth && (
+								{isPersonalAuth(server) && (
 									<button
 										type="button"
 										disabled={busy}
@@ -1456,6 +1535,13 @@ export default function MCPServerDetail({
 				status={testStatus}
 				message={testMessage}
 				onClose={resetTest}
+			/>
+			<PersonalCredentialsDialog
+				server={testCredentialsServer}
+				onOpenChange={(open) => {
+					if (!open) closeCredentialsPrompt();
+				}}
+				onSaved={completeCredentials}
 			/>
 		</div>
 	);

@@ -24,7 +24,12 @@ from app.mcp.client.connectivity import build_oauth_provider
 from app.mcp.client.storage import RedisTokenStorage
 from app.mcp.compatibility import OAuthRedirectMode
 from app.mcp.servers import service as service_module
-from app.mcp.servers.models import MCPAuthType
+from app.mcp.servers.models import (
+    MCPAuthType,
+    MCPCredentialScope,
+    is_personal_auth,
+    stores_user_credentials,
+)
 from app.mcp.servers.schemas import (
     MCPConnectionDisconnectSummary,
     MCPDisconnectedConnection,
@@ -169,6 +174,9 @@ def mock_repo():
     repo.update_oauth_credentials = AsyncMock()
     repo.get_oauth_credentials = AsyncMock()
     repo.delete_credentials = AsyncMock()
+    repo.delete_user_credentials = AsyncMock(return_value=0)
+    repo.set_credential_config = AsyncMock()
+    repo.user_credential_server_ids = AsyncMock(return_value=set())
     repo.count_by_url = AsyncMock(return_value={})
     return repo
 
@@ -188,6 +196,15 @@ def make_mcp_server(**kwargs):
     server.name = kwargs.get("name", "Server")
     server.url = kwargs.get("url", "https://mcp.example.com/mcp")
     server.managed_by = kwargs.get("managed_by")
+    server.credential_scope = kwargs.get("credential_scope", MCPCredentialScope.shared)
+    # Each MagicMock has its own class, so these stay per-instance and follow
+    # an `auth_type` assigned after construction, like the real properties.
+    type(server).is_personal = property(
+        lambda s: is_personal_auth(s.auth_type, s.credential_scope)
+    )
+    type(server).uses_user_credentials = property(
+        lambda s: stores_user_credentials(s.auth_type, s.credential_scope)
+    )
     return server
 
 
@@ -831,16 +848,19 @@ async def test_disconnect_all_processes_auxilia_last(service, mock_repo, monkeyp
             id=regular_id,
             name="Regular",
             auth_type=MCPAuthType.oauth2,
+            credential_scope=MCPCredentialScope.personal,
         ),
         SimpleNamespace(
             id=auxilia_id,
             name="Auxilia",
             auth_type=MCPAuthType.oauth2,
+            credential_scope=MCPCredentialScope.personal,
         ),
         SimpleNamespace(
             id=shared_id,
             name="Shared",
             auth_type=MCPAuthType.service_identity,
+            credential_scope=MCPCredentialScope.shared,
         ),
     ]
     service.list_responses = AsyncMock(return_value=visible)

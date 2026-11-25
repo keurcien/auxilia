@@ -1,4 +1,4 @@
-import { MCPServer } from "./mcp-servers";
+import { MCPAuthType, MCPCredentialScope, MCPServer } from "./mcp-servers";
 import { SandboxProviderType } from "./sandboxes";
 import { AgentSkill } from "./skills";
 import type { ResourceVisibility } from "./visibility";
@@ -202,6 +202,9 @@ export interface AgentResourceMCPServer {
 	iconUrl: string | null;
 	imageRevision: string | null;
 	description: string | null;
+	authType: MCPAuthType;
+	credentialScope: MCPCredentialScope;
+	personalHeaderNames: string[];
 	toolNames: string[];
 	configured: boolean;
 	enabledByDefault: boolean;

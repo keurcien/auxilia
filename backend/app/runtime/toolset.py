@@ -290,18 +290,22 @@ class MCPResolutionScope:
         *,
         authorized_only: bool = False,
     ) -> MCPResolutionScope:
-        """Preload the graph's servers, optionally omitting unauthorized OAuth.
+        """Preload the graph's servers, optionally omitting unauthorized ones.
 
-        Runs use ``authorized_only`` so an optional personal OAuth binding
-        cannot prevent the agent from answering with its other tools. The
-        authorization probe is user-scoped; no credential is shared.
+        Runs use ``authorized_only`` so an optional personal binding (OAuth,
+        or an API key / headers the user has not entered) cannot prevent the
+        agent from answering with its other tools. The authorization probe is
+        user-scoped; no credential is shared.
         """
         scope = cls(db, user_id, workspace_id)
         await scope.load([b.mcp_server_id for b in bindings])
         if authorized_only:
             try:
                 authorization = await probe_authorization(
-                    scope._rows.values(), user_id, workspace_id
+                    scope._rows.values(),
+                    user_id,
+                    workspace_id,
+                    repository=scope._repo,
                 )
             except Exception:  # noqa: BLE001 — optional MCP auth must not block the LLM
                 logger.warning(

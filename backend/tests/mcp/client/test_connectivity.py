@@ -24,6 +24,8 @@ def _server(auth_type, server_id="s1"):
         workspace_id=TEST_WORKSPACE_ID,
         url="https://mcp.example.com/mcp",
         auth_type=auth_type,
+        is_personal=auth_type == MCPAuthType.oauth2,
+        uses_user_credentials=False,
     )
 
 

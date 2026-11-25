@@ -1,4 +1,19 @@
+from app.exceptions import DomainValidationError
 from app.mcp.compatibility import OAuthRedirectMode
+
+
+class PersonalCredentialsRequired(DomainValidationError):
+    """The user has not entered their own secret for a personal MCP server.
+
+    The API-key / custom HTTP counterpart of :class:`OAuthAuthorizationRequired`:
+    endpoints whose job is connecting catch it and ask for the credentials.
+    """
+
+    def __init__(self, server_name: str):
+        self.server_name = server_name
+        super().__init__(
+            f"Enter your own credentials for MCP server '{server_name}' first"
+        )
 
 
 class OAuthAuthorizationRequired(Exception):
