@@ -4,12 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Star } from "lucide-react";
-import { Agent, AgentPermission } from "@/types/agents";
+import { Agent, AgentPermission, canConfigureAgent } from "@/types/agents";
 import { agentColorBackground } from "@/lib/colors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
 import ArchivedAgentDialog from "@/app/(protected)/agents/components/archived-agent-dialog";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { RowActionLink } from "@/components/ui/row-action-link";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
 import {
@@ -377,12 +378,39 @@ export default function AgentTable({
 			),
 		},
 		{
-			key: "chevron",
+			key: "actions",
 			header: "",
-			width: "24px",
+			width: "130px",
 			mobileWidth: "auto",
 			align: "right",
-			cell: () => <span className="text-ghost">›</span>,
+			cell: (agent) => {
+				// Archived rows open a dialog and inaccessible ones explain why:
+				// neither has a page to link to.
+				if (archived || !agent.currentUserPermission) {
+					return <span className="text-ghost">›</span>;
+				}
+				const canEdit = canConfigureAgent(agent.currentUserPermission);
+				return (
+					<div
+						className="flex items-center justify-end gap-1.5"
+						// The row itself is clickable — keep action clicks off it.
+						onClick={(event) => {
+							event.stopPropagation();
+						}}
+					>
+						<RowActionLink href={`/agents/${agent.id}/chat`}>
+							Chat
+						</RowActionLink>
+						<RowActionLink
+							href={
+								canEdit ? `/agents/${agent.id}?edit=1` : `/agents/${agent.id}`
+							}
+						>
+							{canEdit ? "Edit" : "Open"}
+						</RowActionLink>
+					</div>
+				);
+			},
 		},
 	];
 
@@ -404,7 +432,7 @@ export default function AgentTable({
 				onRowClick={handleRowClick}
 				emptyMessage="No agents here."
 				scrollBody
-				minTableWidth="1020px"
+				minTableWidth="1130px"
 				bleedOnNarrow
 				groupTree={{
 					...groupTree,

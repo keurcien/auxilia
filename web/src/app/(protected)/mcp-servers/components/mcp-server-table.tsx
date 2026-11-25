@@ -13,6 +13,7 @@ import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { RowActionLink } from "@/components/ui/row-action-link";
 import { GroupedCardTree } from "@/components/ui/grouped-card-tree";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
@@ -424,12 +425,9 @@ export default function MCPServerTable({
 					<RowTestButton server={server} />
 					{isAdmin && (
 						<>
-							<Link
-								href={serverEditHref(server)}
-								className="cursor-pointer rounded-[7px] border border-border px-[11px] py-[5px] text-[12px] font-medium text-body transition-colors hover:bg-sidebar dark:text-panel-body dark:hover:bg-white/5"
-							>
+							<RowActionLink href={serverEditHref(server)}>
 								Edit
-							</Link>
+							</RowActionLink>
 							<DropdownMenu
 								items={
 									server.managedBy === "database"
@@ -693,12 +691,9 @@ export default function MCPServerTable({
 									<RowTestButton server={server} />
 									{isAdmin && (
 										<>
-											<Link
-												href={serverEditHref(server)}
-												className="cursor-pointer rounded-[7px] border border-border px-[11px] py-[5px] text-[12px] font-medium text-body transition-colors hover:bg-sidebar dark:text-panel-body dark:hover:bg-white/5"
-											>
+											<RowActionLink href={serverEditHref(server)}>
 												Edit
-											</Link>
+											</RowActionLink>
 											<DropdownMenu
 												items={
 													server.managedBy === "database"

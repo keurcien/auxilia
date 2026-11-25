@@ -11,7 +11,6 @@ import {
 	Copy,
 	FolderClosed,
 	Pause,
-	Pencil,
 	Play,
 	Plus,
 	Repeat1,
@@ -33,6 +32,7 @@ import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { UsageBadge } from "@/components/usage/usage-badge";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { RowActionLink } from "@/components/ui/row-action-link";
 import { GroupedCardTree } from "@/components/ui/grouped-card-tree";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
 import type { ViewMode } from "@/components/ui/view-toggle";
@@ -460,16 +460,26 @@ export default function TriggerList({
 		{
 			key: "actions",
 			header: "",
-			width: "44px",
-			mobileWidth: "44px",
-			cell: (trigger) =>
-				trigger.canManage ? (
-					<div
-						className="flex justify-end"
-						onClick={(event) => {
-							event.stopPropagation();
-						}}
+			width: "96px",
+			mobileWidth: "auto",
+			cell: (trigger) => (
+				<div
+					className="flex items-center justify-end gap-1.5"
+					// The row itself is clickable — keep action clicks off it.
+					onClick={(event) => {
+						event.stopPropagation();
+					}}
+				>
+					<RowActionLink
+						href={
+							trigger.canManage
+								? `/triggers/${trigger.id}?edit=1`
+								: `/triggers/${trigger.id}`
+						}
 					>
+						{trigger.canManage ? "Edit" : "Open"}
+					</RowActionLink>
+					{trigger.canManage && (
 						<DropdownMenu
 							items={[
 								{
@@ -485,11 +495,6 @@ export default function TriggerList({
 									onClick: () => {
 										handleToggleActive(trigger);
 									},
-								},
-								{
-									label: "Edit",
-									icon: <Pencil />,
-									href: `/triggers/${trigger.id}?edit=1`,
 								},
 								...(canCreate
 									? [
@@ -513,8 +518,9 @@ export default function TriggerList({
 								},
 							]}
 						/>
-					</div>
-				) : null,
+					)}
+				</div>
+			),
 		},
 	];
 
@@ -576,7 +582,7 @@ export default function TriggerList({
 				rowKey={(trigger) => trigger.id}
 				isLoading
 				scrollBody
-				minTableWidth="1320px"
+				minTableWidth="1372px"
 				bleedOnNarrow
 			/>
 		) : null;
@@ -649,7 +655,7 @@ export default function TriggerList({
 						selection.toggle(trigger.id, shiftKey);
 					}}
 					scrollBody
-					minTableWidth="1320px"
+					minTableWidth="1372px"
 					bleedOnNarrow
 					groupTree={{
 						...groupTree,

@@ -36,6 +36,7 @@ import {
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { RowActionLink } from "@/components/ui/row-action-link";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
 import {
 	SearchSelect,
@@ -485,6 +486,26 @@ export default function ProfileThreads() {
 					</button>
 				) : null,
 		},
+		{
+			key: "open",
+			header: "",
+			width: "72px",
+			mobileWidth: "auto",
+			align: "right",
+			cell: (thread) => (
+				<div
+					className="flex justify-end"
+					// The row itself is clickable — keep action clicks off it.
+					onClick={(event) => {
+						event.stopPropagation();
+					}}
+				>
+					<RowActionLink href={`/agents/${thread.agentId}/chat/${thread.id}`}>
+						Open
+					</RowActionLink>
+				</div>
+			),
+		},
 	];
 
 	return (
@@ -673,7 +694,7 @@ export default function ProfileThreads() {
 				onRowSelectionClick={(thread, shiftKey) => {
 					selection.toggle(thread.id, shiftKey);
 				}}
-				minTableWidth="620px"
+				minTableWidth="700px"
 				onRowClick={(thread) => {
 					router.push(`/agents/${thread.agentId}/chat/${thread.id}`);
 				}}

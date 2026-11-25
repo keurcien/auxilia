@@ -160,7 +160,7 @@ export function AgentMultiPicker({
 									toggle(agent.id);
 								}}
 								className={cn(
-									"group flex w-full cursor-pointer items-center gap-3 rounded-[9px] px-2.5 py-2 text-left outline-none transition-colors focus-visible:bg-hover dark:focus-visible:bg-white/5",
+									"group flex w-full cursor-pointer items-center gap-3 rounded-[9px] px-2.5 py-[9px] text-left outline-none transition-colors focus-visible:bg-hover dark:focus-visible:bg-white/5",
 									checked
 										? "bg-petrol-tint/60 dark:bg-white/5"
 										: "hover:bg-hover dark:hover:bg-white/5",

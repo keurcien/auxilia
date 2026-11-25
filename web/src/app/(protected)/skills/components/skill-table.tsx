@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { RowActionLink } from "@/components/ui/row-action-link";
 import { GroupedCardTree } from "@/components/ui/grouped-card-tree";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
@@ -474,52 +475,53 @@ export default function SkillTable({
 		{
 			key: "actions",
 			header: "",
-			width: "44px",
+			width: "96px",
 			mobileWidth: "auto",
-			cell: (skill) => (
-				<div
-					className="flex justify-end"
-					onClick={(e) => {
-						e.stopPropagation();
-					}}
-				>
-					<DropdownMenu
-						items={[
-							{
-								label: skill.canEdit || skill.canManage ? "Edit" : "Open",
-								icon: <Pencil />,
-								href: `/skills/${skill.id}${
-									skill.canEdit || skill.canManage ? "?edit=1" : ""
-								}`,
-							},
-							...(skill.fileCount === 0 && (skill.canEdit || skill.canManage)
-								? [
-										{
-											label: "Duplicate",
-											icon: <Copy />,
-											onClick: () => {
-												void duplicateSkill(skill);
-											},
-										},
-									]
-								: []),
-							...(skill.canManage
-								? [
-										{ separator: true as const },
-										{
-											label: "Delete skill",
-											icon: <Trash2 />,
-											destructive: true,
-											onClick: () => {
-												onDelete(skill);
-											},
-										},
-									]
-								: []),
-						]}
-					/>
-				</div>
-			),
+			cell: (skill) => {
+				const canEdit = skill.canEdit || skill.canManage;
+				const menuItems = [
+					...(skill.fileCount === 0 && canEdit
+						? [
+								{
+									label: "Duplicate",
+									icon: <Copy />,
+									onClick: () => {
+										void duplicateSkill(skill);
+									},
+								},
+							]
+						: []),
+					...(skill.canManage
+						? [
+								...(skill.fileCount === 0 ? [{ separator: true as const }] : []),
+								{
+									label: "Delete skill",
+									icon: <Trash2 />,
+									destructive: true,
+									onClick: () => {
+										onDelete(skill);
+									},
+								},
+							]
+						: []),
+				];
+				return (
+					<div
+						className="flex items-center justify-end gap-1.5"
+						// The row itself is clickable — keep action clicks off it.
+						onClick={(e) => {
+							e.stopPropagation();
+						}}
+					>
+						<RowActionLink
+							href={`/skills/${skill.id}${canEdit ? "?edit=1" : ""}`}
+						>
+							{canEdit ? "Edit" : "Open"}
+						</RowActionLink>
+						{menuItems.length > 0 && <DropdownMenu items={menuItems} />}
+					</div>
+				);
+			},
 		},
 	];
 
@@ -765,7 +767,7 @@ export default function SkillTable({
 					selection.toggle(skill.id, shiftKey);
 				}}
 				scrollBody
-				minTableWidth="1060px"
+				minTableWidth="1112px"
 				bleedOnNarrow
 				groupTree={{
 					...groupTree,
