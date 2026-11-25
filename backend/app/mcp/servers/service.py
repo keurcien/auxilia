@@ -614,6 +614,35 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         await self._stage_servers_changed()
         return updated
 
+    async def changes_oauth_credentials(
+        self, server_id: UUID, data: MCPServerPatch
+    ) -> bool:
+        """Whether applying ``data`` replaces the stored OAuth application.
+
+        Edit forms send the non-secret client id back on every save, so a field
+        being present means nothing: only a value that differs from the stored
+        row orphans the tokens minted for the previous client. Call it before
+        :meth:`update`, which overwrites the row.
+        """
+        creds = await self.repository.get_oauth_credentials(server_id)
+        if data.clears_oauth_credentials:
+            return creds is not None
+        if creds is None:
+            return bool(data.oauth_client_id and data.oauth_client_secret)
+        return (
+            (bool(data.oauth_client_id) and data.oauth_client_id != creds.client_id)
+            or (
+                bool(data.oauth_client_secret)
+                and data.oauth_client_secret
+                != decrypt_value(creds.client_secret_encrypted)
+            )
+            or (
+                bool(data.oauth_token_endpoint_auth_method)
+                and data.oauth_token_endpoint_auth_method
+                != creds.token_endpoint_auth_method
+            )
+        )
+
     async def purge_invalidated_state(
         self,
         server_id: UUID,

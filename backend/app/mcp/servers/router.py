@@ -195,7 +195,9 @@ async def update_mcp_server(
     before = await service.get_scoped_for_update(server_id)
     previous_auth_type = before.auth_type
     previous_url = before.url
-    oauth_credentials_changed = server_update.changes_oauth_credentials
+    oauth_credentials_changed = await service.changes_oauth_credentials(
+        server_id, server_update
+    )
     updated = await service.update(server_id, server_update)
     # Commit before purging Redis: that side effect cannot be rolled back.
     await db.commit()

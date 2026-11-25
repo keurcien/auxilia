@@ -87,14 +87,6 @@ class MCPServerPatch(SQLModel):
             and not self.oauth_client_secret
         )
 
-    @property
-    def changes_oauth_credentials(self) -> bool:
-        return self.clears_oauth_credentials or bool(
-            self.oauth_client_id
-            or self.oauth_client_secret
-            or self.oauth_token_endpoint_auth_method
-        )
-
 
 class MCPServerResponse(SQLModel):
     id: UUID
