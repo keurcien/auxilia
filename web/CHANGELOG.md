@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.167](https://github.com/jr-k/auxilia/compare/web-v0.12.166...web-v0.12.167) (2026-11-25)
+
+
+### Features
+
+* **mcp:** filter the MCP servers list by personal or shared credentials ([#348](https://github.com/jr-k/auxilia/issues/348)) ([c5237b9](https://github.com/jr-k/auxilia/commit/c5237b96eacf95039d8fce6de0e03d1aebd7987e))
+
+
+### Bug Fixes
+
+* **threads:** show a pointer cursor on the header model pill ([#349](https://github.com/jr-k/auxilia/issues/349)) ([6e2df05](https://github.com/jr-k/auxilia/commit/6e2df0541db15321525ab584485cf1934e10a255))
+
 ## [0.12.166](https://github.com/jr-k/auxilia/compare/web-v0.12.165...web-v0.12.166) (2026-11-25)
 
 
