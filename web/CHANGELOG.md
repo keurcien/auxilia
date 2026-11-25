@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.161](https://github.com/jr-k/auxilia/compare/web-v0.12.160...web-v0.12.161) (2026-11-25)
+
+
+### Features
+
+* **agents:** offer to add a new MCP server, skill or agent to existing agents ([0dbd5ff](https://github.com/jr-k/auxilia/commit/0dbd5ff1c3cfec1c9309494b34d186f50825c382))
+* **web:** ask for the MCP server name before its URL ([0dbd5ff](https://github.com/jr-k/auxilia/commit/0dbd5ff1c3cfec1c9309494b34d186f50825c382))
+* **web:** quick search under agent and trigger resource tabs ([0dbd5ff](https://github.com/jr-k/auxilia/commit/0dbd5ff1c3cfec1c9309494b34d186f50825c382))
+* **web:** render action buttons as links so they open in a new tab ([0dbd5ff](https://github.com/jr-k/auxilia/commit/0dbd5ff1c3cfec1c9309494b34d186f50825c382))
+
+
+### Bug Fixes
+
+* **sharing:** plan and apply nested scope changes instead of blocking circular shares ([0dbd5ff](https://github.com/jr-k/auxilia/commit/0dbd5ff1c3cfec1c9309494b34d186f50825c382))
+
 ## [0.12.160](https://github.com/jr-k/auxilia/compare/web-v0.12.159...web-v0.12.160) (2026-11-23)
 
 

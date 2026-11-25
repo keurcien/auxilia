@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.11.121](https://github.com/jr-k/auxilia/compare/backend-v0.11.120...backend-v0.11.121) (2026-11-25)
+
+
+### Features
+
+* **agents:** offer to add a new MCP server, skill or agent to existing agents ([0dbd5ff](https://github.com/jr-k/auxilia/commit/0dbd5ff1c3cfec1c9309494b34d186f50825c382))
+* **web:** ask for the MCP server name before its URL ([0dbd5ff](https://github.com/jr-k/auxilia/commit/0dbd5ff1c3cfec1c9309494b34d186f50825c382))
+* **web:** quick search under agent and trigger resource tabs ([0dbd5ff](https://github.com/jr-k/auxilia/commit/0dbd5ff1c3cfec1c9309494b34d186f50825c382))
+* **web:** render action buttons as links so they open in a new tab ([0dbd5ff](https://github.com/jr-k/auxilia/commit/0dbd5ff1c3cfec1c9309494b34d186f50825c382))
+
+
+### Bug Fixes
+
+* **sharing:** plan and apply nested scope changes instead of blocking circular shares ([0dbd5ff](https://github.com/jr-k/auxilia/commit/0dbd5ff1c3cfec1c9309494b34d186f50825c382))
+
 ## [0.11.120](https://github.com/jr-k/auxilia/compare/backend-v0.11.119...backend-v0.11.120) (2026-11-23)
 
 
