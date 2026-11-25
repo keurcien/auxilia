@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.126](https://github.com/jr-k/auxilia/compare/backend-v0.11.125...backend-v0.11.126) (2026-11-25)
+
+
+### Bug Fixes
+
+* **mcp:** rename tool schema property keys that model providers reject ([#351](https://github.com/jr-k/auxilia/issues/351)) ([49d486c](https://github.com/jr-k/auxilia/commit/49d486c87dd3cddf0c6dec188c7c1ab1f7969149))
+
 ## [0.11.125](https://github.com/jr-k/auxilia/compare/backend-v0.11.124...backend-v0.11.125) (2026-11-25)
 
 
