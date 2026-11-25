@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/api/client";
+import { UserFacingError } from "@/lib/api/errors";
 import { protocolFetch } from "@/lib/api/protocol";
 
 export interface Artifact {
@@ -30,7 +31,11 @@ export async function attachFile(
     const body = (await response.json().catch(() => null)) as {
       detail?: string;
     } | null;
-    throw new Error(body?.detail ?? `Could not attach ${filename}.`);
+    throw new UserFacingError(
+      response.status < 500 && body?.detail
+        ? `Could not attach ${filename}: ${body.detail}`
+        : `Could not attach ${filename}.`,
+    );
   }
   return (await response.json()) as Artifact;
 }

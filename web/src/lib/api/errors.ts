@@ -52,6 +52,18 @@ export class ApiError extends Error {
 	}
 }
 
+/**
+ * A failure raised on the client whose message is written for the user
+ * (an attachment over the limit, a refused upload). `getApiErrorMessage`
+ * shows it as is instead of the caller's fallback.
+ */
+export class UserFacingError extends Error {
+	constructor(message: string, options?: { cause?: unknown }) {
+		super(message, options);
+		this.name = "UserFacingError";
+	}
+}
+
 export function isApiError(error: unknown): error is ApiError {
 	return error instanceof ApiError;
 }
@@ -146,6 +158,7 @@ function validationMessage(body: unknown): string | null {
  * 5xx, network errors, and unexpected shapes.
  */
 export function getApiErrorMessage(error: unknown, fallback: string): string {
+	if (error instanceof UserFacingError) return error.message;
 	const e = toApiError(error);
 	if (e.status != null && e.status >= 400 && e.status < 500) {
 		if (e.detail) return e.detail;

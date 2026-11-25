@@ -1,4 +1,5 @@
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
+import { UserFacingError } from "@/lib/api/errors";
 
 /** A human turn as the backend accepts it: plain text, or LangChain content blocks. */
 export type HumanContent = string | Array<Record<string, unknown>>;
@@ -198,7 +199,7 @@ export async function promptMessageToInput(
 	const files = message.files ?? [];
 	if (!text && files.length === 0) return null;
 	if (files.length > 10) {
-		throw new Error("A message can contain at most 10 files.");
+		throw new UserFacingError("A message can contain at most 10 files.");
 	}
 
 	const parts: Array<Record<string, unknown>> = [];
@@ -211,15 +212,7 @@ export async function promptMessageToInput(
 			textContent: await textAttachmentContent(file),
 		})),
 	);
-	const inlineTextChars = prepared.reduce(
-		(total, item) => total + (item.textContent?.length ?? 0),
-		0,
-	);
-	if (inlineTextChars > INLINE_TEXT_MAX_CHARS) {
-		throw new Error(
-			"Text attachments can contain at most 100,000 characters per message.",
-		);
-	}
+	let inlineTextChars = 0;
 	for (const { file, textContent } of prepared) {
 		const image = file.mediaType.startsWith("image/") && textContent == null;
 		if (image && options.vision) {
@@ -228,7 +221,16 @@ export async function promptMessageToInput(
 				image_url: { url: file.url, detail: "auto" },
 			});
 		}
-		if (textContent != null) {
+		const fitsInline =
+			textContent != null &&
+			inlineTextChars + textContent.length <= INLINE_TEXT_MAX_CHARS;
+		if (textContent != null && !fitsInline && options.upload == null) {
+			throw new UserFacingError(
+				`"${file.filename || "file"}" is too large to send as text: attached text files can contain at most ${INLINE_TEXT_MAX_CHARS.toLocaleString("en-US")} characters per message. Larger files need an agent with a sandbox.`,
+			);
+		}
+		if (textContent != null && fitsInline) {
+			inlineTextChars += textContent.length;
 			const filename = file.filename || "file.txt";
 			const mediaType =
 				file.mediaType.startsWith("text/") ||
@@ -254,8 +256,8 @@ export async function promptMessageToInput(
 			}
 		}
 		if (image && options.vision) continue;
-		throw new Error(
-			"Only images and text files can be attached without file storage.",
+		throw new UserFacingError(
+			`"${file.filename || "file"}" cannot be attached: this agent has no sandbox, so only images and text files can be sent.`,
 		);
 	}
 	if (parts.length === 0 && attachments.length === 0) return null;
