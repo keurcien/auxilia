@@ -5,6 +5,7 @@ import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
 import { handleKeyboardListNavigation } from "@/lib/keyboard-list-navigation";
 import { effortLabel } from "@/lib/reasoning-effort";
 import {
+	hasTouchKeyboard,
 	PromptInput,
 	PromptInputAddAttachmentButton,
 	PromptInputAttachment,
@@ -630,6 +631,11 @@ const ChatPromptInput = ({
 		if (!initialFocusPendingRef.current || queueLoading) {
 			return;
 		}
+		// Focusing on arrival would pop the on-screen keyboard over the thread.
+		if (hasTouchKeyboard()) {
+			initialFocusPendingRef.current = false;
+			return;
+		}
 
 		const frame = requestAnimationFrame(() => {
 			textareaRef.current?.focus({ preventScroll: true });
@@ -641,7 +647,7 @@ const ChatPromptInput = ({
 	}, [queueLoading]);
 
 	useEffect(() => {
-		if (wasCompletedRef.current && !completed) {
+		if (wasCompletedRef.current && !completed && !hasTouchKeyboard()) {
 			requestAnimationFrame(() => {
 				textareaRef.current?.focus({ preventScroll: true });
 			});

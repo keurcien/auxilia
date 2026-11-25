@@ -1078,12 +1078,13 @@ function subscribeTouchKeyboard(onChange: () => void): () => void {
 	};
 }
 
+/** Whether focusing a field would pop up an on-screen keyboard. */
+export function hasTouchKeyboard(): boolean {
+	return window.matchMedia(TOUCH_KEYBOARD_QUERY).matches;
+}
+
 function useTouchKeyboard(): boolean {
-	return useSyncExternalStore(
-		subscribeTouchKeyboard,
-		() => window.matchMedia(TOUCH_KEYBOARD_QUERY).matches,
-		() => false,
-	);
+	return useSyncExternalStore(subscribeTouchKeyboard, hasTouchKeyboard, () => false);
 }
 
 // Safari and Android keyboards report the Enter that confirms a composition
