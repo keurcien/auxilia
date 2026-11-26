@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.128](https://github.com/jr-k/auxilia/compare/backend-v0.11.127...backend-v0.11.128) (2026-11-26)
+
+
+### Bug Fixes
+
+* **mcp:** follow the server's own 401 challenge when starting OAuth ([#360](https://github.com/jr-k/auxilia/issues/360)) ([460e6e9](https://github.com/jr-k/auxilia/commit/460e6e96234bf9fca43957a5dd9f5ad7fc797d53))
+
 ## [0.11.127](https://github.com/jr-k/auxilia/compare/backend-v0.11.126...backend-v0.11.127) (2026-11-26)
 
 
