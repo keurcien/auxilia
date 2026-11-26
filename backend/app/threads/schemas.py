@@ -43,7 +43,13 @@ class ThreadStartCreate(BaseModel):
 class ThreadPatch(SQLModel):
     # Rename only: the PATCH endpoint is a cosmetic rename of the thread's
     # display title. Model changes use their own validated endpoint.
-    first_message_content: str | None = None
+    first_message_content: str | None = Field(
+        default=None,
+        description=(
+            "The conversation's new display title, as shown in the sidebar and "
+            "the project views."
+        ),
+    )
 
 
 class ThreadModelUpdate(SQLModel):

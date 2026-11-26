@@ -221,7 +221,11 @@ def register_management_tools(mcp: MCPServer) -> None:
     async def rename_conversation(
         thread_id: str, data: ThreadPatch, ctx: Context
     ) -> dict[str, Any]:
-        """Rename one conversation owned by the caller."""
+        """Rename one conversation owned by the caller.
+
+        Pass the new title in `data.first_message_content`. Use
+        `search_conversations` to find the `thread_id` from a title.
+        """
         async with tool_session(ctx) as (db, user, workspace_id):
             service = ThreadService(db, workspace_id)
             thread = await service.get(thread_id)
