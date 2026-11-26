@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, X } from "lucide-react";
+import { toast } from "sonner";
 import {
 	BulkConfirmDialog,
 	type BulkConfirmItem,
@@ -139,6 +140,7 @@ export default function MCPServerTable({
 		fetchMcpServers,
 		isInitialized,
 		deleteMcpServer,
+		duplicateMcpServer,
 		refreshMcpServers,
 		resetMcpServerConnections,
 	} = useMcpServersStore();
@@ -343,6 +345,60 @@ export default function MCPServerTable({
 		}
 	};
 
+	const handleDuplicate = async (server: MCPServer) => {
+		setActionError(null);
+		try {
+			const created = await duplicateMcpServer(server.id);
+			toast.success(`Duplicated as “${created.name}”.`);
+			router.push(`/mcp-servers/${created.id}?edit=1`);
+		} catch (err: unknown) {
+			if (toApiError(err).status === 403) {
+				setForbiddenOpen(true);
+			} else {
+				setActionError(
+					getApiErrorMessage(err, "Could not duplicate the MCP server."),
+				);
+			}
+		}
+	};
+
+	const serverMenuItems = (server: MCPServer) =>
+		server.managedBy === "database"
+			? [
+					{
+						label: "Delete database",
+						destructive: true,
+						onClick: () => {
+							void handleDeleteDatabase(server);
+						},
+					},
+				]
+			: [
+					{
+						label: "Duplicate",
+						onClick: () => {
+							void handleDuplicate(server);
+						},
+					},
+					...(isPersonalAuth(server)
+						? [
+								{
+									label: "Reset connections",
+									onClick: () => {
+										void handleReset(server);
+									},
+								},
+							]
+						: []),
+					{
+						label: "Delete server",
+						destructive: true,
+						onClick: () => {
+							void handleDelete(server);
+						},
+					},
+				];
+
 	const columns: DataTableColumn<MCPServer>[] = [
 		{
 			key: "server",
@@ -450,39 +506,7 @@ export default function MCPServerTable({
 							<RowActionLink href={serverEditHref(server)}>
 								Edit
 							</RowActionLink>
-							<DropdownMenu
-								items={
-									server.managedBy === "database"
-										? [
-												{
-													label: "Delete database",
-													destructive: true,
-													onClick: () => {
-														void handleDeleteDatabase(server);
-													},
-												},
-											]
-										: [
-										...(isPersonalAuth(server)
-											? [
-													{
-														label: "Reset connections",
-														onClick: () => {
-															void handleReset(server);
-														},
-													},
-												]
-											: []),
-										{
-											label: "Delete server",
-											destructive: true,
-											onClick: () => {
-												void handleDelete(server);
-											},
-										},
-											]
-								}
-							/>
+							<DropdownMenu items={serverMenuItems(server)} />
 						</>
 					)}
 				</div>
@@ -719,39 +743,7 @@ export default function MCPServerTable({
 											<RowActionLink href={serverEditHref(server)}>
 												Edit
 											</RowActionLink>
-											<DropdownMenu
-												items={
-													server.managedBy === "database"
-														? [
-																{
-																	label: "Delete database",
-																	destructive: true,
-																	onClick: () => {
-																		void handleDeleteDatabase(server);
-																	},
-																},
-															]
-														: [
-														...(isPersonalAuth(server)
-															? [
-																	{
-																		label: "Reset connections",
-																		onClick: () => {
-																			void handleReset(server);
-																		},
-																	},
-																]
-															: []),
-														{
-															label: "Delete server",
-															destructive: true,
-															onClick: () => {
-																void handleDelete(server);
-															},
-														},
-															]
-												}
-											/>
+											<DropdownMenu items={serverMenuItems(server)} />
 										</>
 									)}
 								</div>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import ResourceInUseDialog from "@/components/resource-in-use-dialog";
 import { useConfirmDialog } from "@/components/providers/dialog-provider";
@@ -16,7 +17,7 @@ import { VisibilityPicker } from "@/components/ui/visibility-picker";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import * as mcpServersApi from "@/lib/api/resources/mcp-servers";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { getApiErrorMessage, toApiError } from "@/lib/api/errors";
 import { groupOptions } from "@/lib/groups";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
@@ -166,6 +167,7 @@ export default function MCPServerDetail({
 		mcpServers,
 		updateMcpServer,
 		applyMcpServer,
+		duplicateMcpServer,
 		resetMcpServerConnections,
 	} = useMcpServersStore();
 
@@ -632,6 +634,23 @@ export default function MCPServerDetail({
 		}
 	};
 
+	const handleDuplicate = async () => {
+		setSubmitError(null);
+		try {
+			const created = await duplicateMcpServer(server.id);
+			toast.success(`Duplicated as “${created.name}”.`);
+			router.push(`/mcp-servers/${created.id}?edit=1`);
+		} catch (error: unknown) {
+			if (toApiError(error).status === 403) {
+				setForbiddenOpen(true);
+			} else {
+				setSubmitError(
+					getApiErrorMessage(error, "Could not duplicate the MCP server."),
+				);
+			}
+		}
+	};
+
 	// Masked hint for the stored client secret: bullets for the hidden portion
 	// plus the revealed suffix (when any), so the mask always spans the
 	// secret's full length. Falls back to a generic mask without the hint.
@@ -752,6 +771,12 @@ export default function MCPServerDetail({
 								</HeaderButton>
 								<DropdownMenu
 									items={[
+										{
+											label: "Duplicate",
+											onClick: () => {
+												void handleDuplicate();
+											},
+										},
 										...(isPersonalAuth(server)
 											? [
 													{

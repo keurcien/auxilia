@@ -15,6 +15,7 @@ interface McpServersState {
 	fetchMcpServers: () => Promise<void>;
 	refreshMcpServers: () => Promise<void>;
 	createMcpServer: (payload: MCPServerCreate) => Promise<MCPServer>;
+	duplicateMcpServer: (id: string) => Promise<MCPServer>;
 	updateMcpServer: (id: string, payload: MCPServerUpdate) => Promise<MCPServer>;
 	applyMcpServer: (server: MCPServer) => void;
 	deleteMcpServer: (id: string, options?: { detachAgents?: boolean }) => Promise<void>;
@@ -49,6 +50,11 @@ export const useMcpServersStore = create<McpServersState>((set, get) => {
 		refreshMcpServers: () => load.refresh(),
 		createMcpServer: async (payload) => {
 			const created = await mcpServersApi.createMcpServer(payload);
+			set((state) => ({ mcpServers: [created, ...state.mcpServers] }));
+			return created;
+		},
+		duplicateMcpServer: async (id) => {
+			const created = await mcpServersApi.duplicateMcpServer(id);
 			set((state) => ({ mcpServers: [created, ...state.mcpServers] }));
 			return created;
 		},

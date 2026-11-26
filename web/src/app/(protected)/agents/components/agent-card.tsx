@@ -2,13 +2,16 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Star } from "lucide-react";
+import { Copy, MoreVertical, Star } from "lucide-react";
 import { Agent, AgentPermission } from "@/types/agents";
 import { agentColorBackground } from "@/lib/colors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
+import { useUserStore } from "@/stores/user-store";
 import ArchivedAgentDialog from "@/app/(protected)/agents/components/archived-agent-dialog";
+import { useDuplicateAgent } from "@/app/(protected)/agents/lib/use-duplicate-agent";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "@/hooks/use-long-press";
 import { VisibilityBadge } from "@/components/ui/visibility-badge";
@@ -78,6 +81,11 @@ export default function AgentCard({
 		agent.currentUserPermission === "owner" ||
 		agent.currentUserPermission === "admin";
 	const hasAccess = archived ? canManage : !!agent.currentUserPermission;
+	const canCreateAgents = useUserStore(
+		(state) => !!state.user && state.user.role !== "member",
+	);
+	const canDuplicate = !archived && canManage && canCreateAgents;
+	const duplicateAgent = useDuplicateAgent();
 
 	const resolvedServers = useMemo(() => {
 		if (!agent.mcpServers) return [];
@@ -198,6 +206,34 @@ export default function AgentCard({
 								variant="pill"
 								hideWhenEmpty
 							/>
+						)}
+						{canDuplicate && (
+							<div
+								onClick={(event) => {
+									event.stopPropagation();
+								}}
+							>
+								<DropdownMenu
+									trigger={
+										<button
+											type="button"
+											className="flex size-7 cursor-pointer items-center justify-center rounded-[7px] text-meta opacity-100 transition-all hover:bg-hover hover:text-ink md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:bg-hover data-[state=open]:opacity-100 dark:hover:bg-white/10 dark:hover:text-panel-button"
+										>
+											<MoreVertical className="size-[15px]" />
+											<span className="sr-only">Agent options</span>
+										</button>
+									}
+									items={[
+										{
+											label: "Duplicate",
+											icon: <Copy />,
+											onClick: () => {
+												void duplicateAgent(agent.id);
+											},
+										},
+									]}
+								/>
+							</div>
 						)}
 					</div>
 				</div>

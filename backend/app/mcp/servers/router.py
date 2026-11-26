@@ -213,6 +213,19 @@ async def update_mcp_server(
     return await service.to_response(updated)
 
 
+@router.post(
+    "/{server_id}/duplicate", response_model=MCPServerResponse, status_code=201
+)
+async def duplicate_mcp_server(
+    server_id: UUID,
+    current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> MCPServerResponse:
+    """Admin-only: copy a server, including its write-only shared secrets."""
+    created = await service.duplicate(server_id, current_user.id)
+    return await service.to_response(created)
+
+
 @router.get("/{server_id}/oauth-secret-hint", response_model=OAuthSecretHint)
 async def get_oauth_secret_hint(
     server_id: UUID,

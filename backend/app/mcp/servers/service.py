@@ -325,6 +325,22 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
         await self._stage_servers_changed()
         return db_server
 
+    async def duplicate(self, server_id: UUID, owner_id: UUID) -> MCPServerDB:
+        """Copy a server's configuration and shared credentials. Users connect
+        the copy on their own: personal credentials and OAuth tokens stay with
+        the source."""
+        source = await self.get_scoped(server_id)
+        if source.managed_by is not None:
+            raise DomainValidationError(
+                "Managed MCP servers can't be duplicated; create a new "
+                "connection through their control plane instead."
+            )
+        copy = await self.repository.create_copy(
+            source, name=f"{source.name} copy", owner_id=owner_id
+        )
+        await self._stage_servers_changed()
+        return copy
+
     async def get(self, server_id: UUID) -> MCPServerDB:
         return await self.get_scoped(server_id)
 

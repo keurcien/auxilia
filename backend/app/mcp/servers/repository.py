@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -189,6 +189,88 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
         self.db.add(db_server)
         await self.db.flush()
         return db_server
+
+    async def create_copy(
+        self, source: MCPServerDB, *, name: str, owner_id: UUID
+    ) -> MCPServerDB:
+        """Copy a server with its audience, image and shared credentials.
+
+        Encrypted values are copied verbatim. Per-user state (personal
+        credentials, OAuth tokens in Redis) stays with the source.
+        """
+        image = await self.get_image(source.id)
+        copy = MCPServerDB(
+            workspace_id=source.workspace_id,
+            name=name,
+            url=source.url,
+            auth_type=source.auth_type,
+            credential_scope=source.credential_scope,
+            personal_header_names=list(source.personal_header_names),
+            icon_url=source.icon_url,
+            description=source.description,
+            group=source.group,
+            owner_id=owner_id,
+            visibility=source.visibility,
+            disabled_tools=list(source.disabled_tools),
+            image_revision=uuid4() if image is not None else None,
+        )
+        self.db.add(copy)
+        await self.db.flush()
+
+        team_ids = await self.list_team_ids(source.id)
+        if team_ids:
+            await self.set_team_ids(copy.id, team_ids)
+
+        if image is not None:
+            self.db.add(
+                MCPServerImageDB(
+                    mcp_server_id=copy.id,
+                    data=image.data,
+                    media_type=image.media_type,
+                    sha256=image.sha256,
+                )
+            )
+
+        stmt = select(MCPServerAPIKeyDB).where(
+            MCPServerAPIKeyDB.mcp_server_id == source.id
+        )
+        api_key = (await self.db.execute(stmt)).scalar_one_or_none()
+        if api_key is not None:
+            self.db.add(
+                MCPServerAPIKeyDB(
+                    mcp_server_id=copy.id,
+                    key_encrypted=api_key.key_encrypted,
+                    created_by=None,
+                )
+            )
+
+        oauth = await self.get_oauth_credentials(source.id)
+        if oauth is not None:
+            self.db.add(
+                MCPServerOAuthCredentialsDB(
+                    mcp_server_id=copy.id,
+                    client_id=oauth.client_id,
+                    client_secret_encrypted=oauth.client_secret_encrypted,
+                    token_endpoint_auth_method=oauth.token_endpoint_auth_method,
+                    created_by=None,
+                )
+            )
+
+        service_credential = await self.get_service_credential(source.id)
+        if service_credential is not None:
+            self.db.add(
+                MCPServerServiceCredentialDB(
+                    mcp_server_id=copy.id,
+                    provider=service_credential.provider,
+                    credentials_encrypted=service_credential.credentials_encrypted,
+                    scopes=list(service_credential.scopes),
+                    principal=service_credential.principal,
+                    created_by=None,
+                )
+            )
+
+        await self.db.flush()
+        return copy
 
     async def list_team_ids(self, server_id: UUID) -> list[UUID]:
         stmt = select(MCPServerTeamDB.team_id).where(

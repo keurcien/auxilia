@@ -3,13 +3,16 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Star } from "lucide-react";
+import { Copy, Star } from "lucide-react";
 import { Agent, AgentPermission, canConfigureAgent } from "@/types/agents";
 import { agentColorBackground } from "@/lib/colors";
 import { useMcpServersStore } from "@/stores/mcp-servers-store";
+import { useUserStore } from "@/stores/user-store";
 import ArchivedAgentDialog from "@/app/(protected)/agents/components/archived-agent-dialog";
+import { useDuplicateAgent } from "@/app/(protected)/agents/lib/use-duplicate-agent";
 import ForbiddenErrorDialog from "@/components/forbidden-error-dialog";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { RowActionLink } from "@/components/ui/row-action-link";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
@@ -78,6 +81,10 @@ export default function AgentTable({
 }: AgentTableProps) {
 	const router = useRouter();
 	const mcpServers = useMcpServersStore((state) => state.mcpServers);
+	const canCreateAgents = useUserStore(
+		(state) => !!state.user && state.user.role !== "member",
+	);
+	const duplicateAgent = useDuplicateAgent();
 	const [archivedAgent, setArchivedAgent] = useState<Agent | null>(null);
 	const [forbiddenOpen, setForbiddenOpen] = useState(false);
 
@@ -380,7 +387,7 @@ export default function AgentTable({
 		{
 			key: "actions",
 			header: "",
-			width: "130px",
+			width: "160px",
 			mobileWidth: "auto",
 			align: "right",
 			cell: (agent) => {
@@ -390,6 +397,10 @@ export default function AgentTable({
 					return <span className="text-ghost">›</span>;
 				}
 				const canEdit = canConfigureAgent(agent.currentUserPermission);
+				const canDuplicate =
+					canCreateAgents &&
+					(agent.currentUserPermission === "owner" ||
+						agent.currentUserPermission === "admin");
 				return (
 					<div
 						className="flex items-center justify-end gap-1.5"
@@ -408,6 +419,19 @@ export default function AgentTable({
 						>
 							{canEdit ? "Edit" : "Open"}
 						</RowActionLink>
+						{canDuplicate && (
+							<DropdownMenu
+								items={[
+									{
+										label: "Duplicate",
+										icon: <Copy />,
+										onClick: () => {
+											void duplicateAgent(agent.id);
+										},
+									},
+								]}
+							/>
+						)}
 					</div>
 				);
 			},
@@ -432,7 +456,7 @@ export default function AgentTable({
 				onRowClick={handleRowClick}
 				emptyMessage="No agents here."
 				scrollBody
-				minTableWidth="1130px"
+				minTableWidth="1160px"
 				bleedOnNarrow
 				groupTree={{
 					...groupTree,

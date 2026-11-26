@@ -54,6 +54,12 @@ export async function updateMcpServer(
 	return response.data;
 }
 
+/** Copy a server server-side, shared secrets included; owned by the caller. */
+export async function duplicateMcpServer(serverId: string): Promise<MCPServer> {
+	const response = await api.post<MCPServer>(`/mcp-servers/${serverId}/duplicate`);
+	return response.data;
+}
+
 export function mcpServerImageUrl(serverId: string, revision: string): string {
 	return `/api/backend/mcp-servers/${serverId}/image?v=${encodeURIComponent(revision)}`;
 }
