@@ -54,6 +54,7 @@ from mcp.shared.auth import (
     OAuthMetadata,
     ProtectedResourceMetadata,
 )
+from mcp.types import LATEST_PROTOCOL_VERSION
 from pydantic import AnyHttpUrl, AnyUrl
 from redis.exceptions import LockError
 
@@ -756,25 +757,42 @@ class WebOAuthClientProvider(OAuthClientProvider):
 
     async def _drive_auth_flow(self) -> None:
         """Pump the SDK's ``async_auth_flow`` generator by hand, answering the
-        probe request with a synthetic 401 so the discovery branch always runs.
+        probe request with a 401 so the discovery branch always runs.
 
         The httpx2 auth interface is a generator of requests: the SDK yields
         the request being authenticated and, on a 401 response, yields its
         discovery / registration requests before performing authorization.
-        The probe is never sent — it is answered with a synthetic 401 (no
-        ``WWW-Authenticate``, which the SDK treats as "discover via well-known
-        URLs") — while every request the flow yields after it goes over the
-        wire. The flow terminates inside
+        The probe is a real ``initialize``: the server's own 401 carries the
+        ``WWW-Authenticate`` ``resource_metadata`` URL, which may live on
+        another host than the MCP endpoint (Contrast's WAF blocks every
+        well-known GET on the MCP host). When the server does not challenge,
+        a synthetic 401 (no ``WWW-Authenticate``, which the SDK treats as
+        "discover via well-known URLs") stands in. Every request the flow
+        yields after it goes over the wire. The flow terminates inside
         :meth:`_perform_authorization_code_grant`, which raises.
         """
-        probe = httpx2.Request("POST", str(self.context.server_url))
+        probe = httpx2.Request(
+            "POST",
+            str(self.context.server_url),
+            json={
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": LATEST_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": OAUTH_USER_AGENT, "version": "1"},
+                },
+            },
+            headers={"Accept": "application/json, text/event-stream"},
+        )
         flow = self.async_auth_flow(probe)
         async with httpx2.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             try:
                 request = await flow.__anext__()
                 while True:
                     if request is probe:
-                        response = httpx2.Response(401, request=probe)
+                        response = await self._probe_challenge(client, probe)
                     else:
                         response = await client.send(request)
                     request = await flow.asend(response)
@@ -784,6 +802,29 @@ class WebOAuthClientProvider(OAuthClientProvider):
                 # A transport error from `client.send` leaves the generator
                 # suspended at its yield; close it rather than leave it to GC.
                 await flow.aclose()
+
+    @staticmethod
+    async def _probe_challenge(
+        client: httpx2.AsyncClient, probe: httpx2.Request
+    ) -> httpx2.Response:
+        """The server's own 401 for ``probe``, or a synthetic one when it
+        answers anything else or cannot be reached.
+
+        Streamed so an unauthenticated ``initialize`` answered over SSE is
+        closed without waiting for the server to end the stream.
+        """
+        try:
+            response = await client.send(probe, stream=True)
+        except httpx2.HTTPError:
+            logger.debug("OAuth probe failed for %s", probe.url, exc_info=True)
+            return httpx2.Response(401, request=probe)
+        try:
+            if response.status_code == 401:
+                await response.aread()
+                return response
+        finally:
+            await response.aclose()
+        return httpx2.Response(401, request=probe)
 
     async def _recover_registration_context(self) -> bool:
         """Repair the discovery context after a failed dynamic registration,

@@ -1,7 +1,8 @@
 """Tests for WebOAuthClientProvider (MCP SDK v2 / httpx2).
 
 `initiate_authorization` drives the SDK's own auth flow — the probe request is
-answered with a synthetic 401 and never sent — so discovery (RFC 9728 PRM +
+answered with the server's own 401, or a synthetic one when the server does
+not challenge — so discovery (RFC 9728 PRM +
 RFC 8414/OIDC AS metadata), scope selection and dynamic registration are the
 SDK's; our `_perform_authorization_code_grant` override then raises
 OAuthAuthorizationRequired with the authorize URL, on the plain request stack
@@ -127,14 +128,14 @@ def _google_asm() -> dict:
     }
 
 
-def _probe_must_not_be_sent(request: httpx2.Request) -> httpx2.Response:
-    """The probe is answered with a synthetic 401 and must never hit the wire.
+def _probe_accepted_unauthenticated(request: httpx2.Request) -> httpx2.Response:
+    """The server accepts the unauthenticated probe instead of challenging it.
 
     Regression guard for the BigQuery case: the server returns 200 to an
-    unauthenticated initialize, so a real probe would see no challenge and the
-    flow would never start.
+    unauthenticated initialize, and the flow must still start on a synthetic
+    401.
     """
-    raise AssertionError(f"probe request must not be sent: {request.url}")
+    return httpx2.Response(200, json={"jsonrpc": "2.0", "id": 0, "result": {}})
 
 
 _PROBE = f"POST {BIGQUERY_URL}"
@@ -150,7 +151,7 @@ async def test_uses_scopes_discovered_from_prm(monkeypatch):
     _serve(
         monkeypatch,
         {
-            _PROBE: _probe_must_not_be_sent,
+            _PROBE: _probe_accepted_unauthenticated,
             _PRM_PATH: _google_prm([scope]),
             _ASM_ROOT: _google_asm(),
         },
@@ -200,7 +201,7 @@ async def test_omits_scope_param_when_prm_has_no_scopes(monkeypatch):
     _serve(
         monkeypatch,
         {
-            _PROBE: _probe_must_not_be_sent,
+            _PROBE: _probe_accepted_unauthenticated,
             _PRM_PATH: _google_prm(None),
             _ASM_ROOT: _google_asm(),
         },
@@ -220,7 +221,7 @@ async def test_authorize_url_falls_back_when_as_metadata_missing(monkeypatch):
     _serve(
         monkeypatch,
         {
-            _PROBE: _probe_must_not_be_sent,
+            _PROBE: _probe_accepted_unauthenticated,
             _PRM_PATH: _google_prm(["https://www.googleapis.com/auth/bigquery"]),
             # every ASM URL 404s
         },
@@ -246,7 +247,7 @@ async def test_gmail_keeps_its_fixed_scopes_over_discovery(monkeypatch):
     _serve(
         monkeypatch,
         {
-            f"POST {gmail_url}": _probe_must_not_be_sent,
+            f"POST {gmail_url}": _probe_accepted_unauthenticated,
             "GET https://gmailmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1": {
                 "resource": gmail_url,
                 "authorization_servers": [GOOGLE_ISSUER],
@@ -278,7 +279,7 @@ async def test_dynamic_client_registration_when_no_static_creds(monkeypatch):
     _serve(
         monkeypatch,
         {
-            f"POST {notion_url}": _probe_must_not_be_sent,
+            f"POST {notion_url}": _probe_accepted_unauthenticated,
             "GET https://mcp.notion.com/.well-known/oauth-protected-resource/mcp": {
                 "resource": notion_url,
                 "authorization_servers": [notion_issuer],
@@ -342,7 +343,7 @@ async def test_frame_io_registers_native_public_client_with_loopback_pkce(monkey
     _serve(
         monkeypatch,
         {
-            f"POST {frame_url}": _probe_must_not_be_sent,
+            f"POST {frame_url}": _probe_accepted_unauthenticated,
             "GET https://mcp.frame.io/.well-known/oauth-protected-resource/v1/mcp": {
                 "resource": frame_url,
                 "authorization_servers": [frame_issuer],
@@ -439,7 +440,7 @@ async def test_recovery_uses_path_aware_as_metadata_and_public_dcr(monkeypatch):
     _serve(
         monkeypatch,
         {
-            f"POST {TIKTOK_URL}": _probe_must_not_be_sent,
+            f"POST {TIKTOK_URL}": _probe_accepted_unauthenticated,
             # no PRM, no root ASM (404 everywhere)
             f"GET {TIKTOK_URL}/.well-known/openid-configuration": {
                 "issuer": f"{TIKTOK_URL}/",
@@ -473,7 +474,7 @@ async def test_dcr_retries_as_public_client_for_none_only_server(monkeypatch):
     _serve(
         monkeypatch,
         {
-            f"POST {TIKTOK_URL}": _probe_must_not_be_sent,
+            f"POST {TIKTOK_URL}": _probe_accepted_unauthenticated,
             f"GET {TIKTOK_BASE}/.well-known/oauth-protected-resource/open_mcp/tt-ads-mcp-layer/oauth": {
                 "resource": TIKTOK_URL,
                 "authorization_servers": [f"{TIKTOK_URL}/"],
