@@ -78,6 +78,7 @@ import type { QueuedPrompt, Run } from "@/types/runs";
 import {
   AppSlot,
   ArtifactCards,
+  GallerySlot,
   useAttachedFiles,
 } from "@/components/artifacts/workspace";
 import { contentUrl } from "@/lib/api/resources/artifacts";
@@ -88,6 +89,7 @@ import {
   type ToolStepState,
   getAttachmentIds,
   getFileAttachments,
+  getImageGallery,
   getMcpAppInfo,
   getReasoning,
   getStructuredContent,
@@ -1238,6 +1240,12 @@ const Chain = ({
       {tools.map(({ tc }) => (
         <ArtifactCards key={`files-${tc.id}`} toolCallId={tc.callId ?? tc.id} />
       ))}
+      {tools.map(({ tc, sub }) => {
+        const gallery = sub ? null : getImageGallery(tc.artifact);
+        return gallery ? (
+          <GallerySlot key={`gallery-${tc.id}`} gallery={gallery} />
+        ) : null;
+      })}
       {tools.map(({ tc, sub }) => {
         const app = sub ? null : getMcpAppInfo(tc);
         if (!app) return null;

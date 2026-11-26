@@ -65,10 +65,12 @@ def serialize_message(msg: Any) -> dict[str, Any]:
 # a thread's snapshot costs O(messages), not O(bytes the tools ever returned).
 TOOL_PREVIEW_CHARS = 16_000
 
-# Keep MCP-app data and published-file descriptors, which the client reads.
-# Other artifacts duplicate `content` (`structured_content`). File bytes are
-# served separately and never belong in the transcript.
+# Keep MCP-app data, published-file and image-gallery descriptors, which the
+# client reads. Other artifacts duplicate `content` (`structured_content`).
+# File bytes are served separately and never belong in the transcript.
 _APP_ARTIFACT_KEY = "mcp_app_resource_uri"
+_GALLERY_ARTIFACT_KEY = "image_gallery"
+_GALLERY_IMAGE_KEYS = ("id", "width", "height", "caption", "taken_at", "location")
 
 
 def serialize_message_preview(
@@ -87,7 +89,11 @@ def serialize_message_preview(
     artifact = d.get("artifact")
     if artifact is not None and (
         not isinstance(artifact, dict)
-        or not (artifact.get(_APP_ARTIFACT_KEY) or artifact.get("auxilia_artifacts"))
+        or not (
+            artifact.get(_APP_ARTIFACT_KEY)
+            or artifact.get("auxilia_artifacts")
+            or artifact.get(_GALLERY_ARTIFACT_KEY)
+        )
     ):
         del d["artifact"]
     text = text_of(d.get("content"))
@@ -147,6 +153,34 @@ def _public_content(message_type: str, content: Any) -> str | list[dict[str, Any
     return public
 
 
+def public_image_gallery(artifact: Any) -> dict[str, Any] | None:
+    """An image gallery descriptor reduced to the fields the viewer renders."""
+    gallery = (
+        artifact.get(_GALLERY_ARTIFACT_KEY) if isinstance(artifact, dict) else None
+    )
+    images = gallery.get("images") if isinstance(gallery, dict) else None
+    if not isinstance(images, list):
+        return None
+    public_images = []
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        try:
+            image_id = str(UUID(str(image.get("id"))))
+        except ValueError:
+            continue
+        public_images.append(
+            {key: image.get(key) for key in _GALLERY_IMAGE_KEYS} | {"id": image_id}
+        )
+    if not public_images:
+        return None
+    title = gallery.get("title") if isinstance(gallery, dict) else None
+    return {
+        "title": title if isinstance(title, str) else None,
+        "images": public_images,
+    }
+
+
 def serialize_public_message(msg: Any) -> dict[str, Any] | None:
     """Serialize only transcript fields safe for an unauthenticated snapshot."""
     message_type = getattr(msg, "type", "unknown")
@@ -199,6 +233,9 @@ def serialize_public_message(msg: Any) -> dict[str, Any] | None:
     for key in ("tool_call_id", "status", "name"):
         if key in serialized:
             public[key] = serialized[key]
+    gallery = public_image_gallery(serialized.get("artifact"))
+    if message_type == "tool" and gallery is not None:
+        public["artifact"] = {_GALLERY_ARTIFACT_KEY: gallery}
 
     safe_kwargs: dict[str, Any] = {}
     attachments = kwargs.get("attachments")

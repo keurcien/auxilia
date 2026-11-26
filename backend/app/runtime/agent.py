@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.core.repository import AgentRepository
 from app.agents.models import AgentMCPServerDB, ToolDiscoveryMode, ToolStatus
 from app.agents.run_spec import AgentSpec, RunSpec
+from app.artifacts.gallery import show_images_tool
 from app.artifacts.models import ArtifactDB
 from app.artifacts.service import ATTACHMENTS_ROOT, ArtifactService
 from app.artifacts.tool import present_files_tool
@@ -1192,10 +1193,25 @@ class Agent:
             *self.agent.live.all,
             *([web_search_tool] if web_search_tool is not None else []),
         ]
+        # The gallery shows what other tools found, so an agent without any
+        # (or a no-tools thread, which strips them) is not offered it.
+        gallery_tools = (
+            [
+                show_images_tool(
+                    workspace_id=self.thread.workspace_id,
+                    thread_id=self.thread.id,
+                    source=self.thread.source,
+                    clients=self.agent.live.clients,
+                )
+            ]
+            if general_purpose_tools
+            else []
+        )
         return build_runnable(
             model=self.model,
             tools=[
                 *self.runtime_tools,
+                *gallery_tools,
                 *general_purpose_tools,
             ],
             system_prompt=with_attachments_prompt(

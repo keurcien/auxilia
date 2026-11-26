@@ -6,6 +6,11 @@ from sqlmodel import Field
 from app.models import BaseDBModel
 
 
+# Images of a chat gallery (`show_images`): readable like any thread artifact,
+# but never listed as files nor restored into the execution sandbox.
+GALLERY_ORIGIN = "gallery"
+
+
 class ArtifactDB(BaseDBModel, table=True):
     __tablename__ = "artifacts"
     __table_args__ = (

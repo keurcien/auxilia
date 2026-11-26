@@ -498,8 +498,26 @@ export function useThreadSession({
   const stoppingRef = useRef<string | null>(null);
   const stopSequence = useRef(0);
   const isStopping = stoppingThreadId === threadId;
+  // When a run ends, the SDK keeps the streamed ToolMessage (no `artifact`)
+  // over the values echo and may drop the live handle that carried it, so an
+  // artifact seen once is remembered until the thread changes or reloads.
+  const seenArtifacts = useRef({
+    threadId,
+    byCall: new Map<string, Record<string, unknown>>(),
+  });
   const toolCalls = useMemo(() => {
-    const paired = pairToolCalls(messages, liveToolCalls);
+    if (seenArtifacts.current.threadId !== threadId) {
+      seenArtifacts.current = { threadId, byCall: new Map() };
+    }
+    const { byCall } = seenArtifacts.current;
+    const paired = pairToolCalls(messages, liveToolCalls).map((toolCall) => {
+      if (toolCall.artifact) {
+        byCall.set(toolCall.id, toolCall.artifact);
+        return toolCall;
+      }
+      const artifact = byCall.get(toolCall.id);
+      return artifact ? { ...toolCall, artifact } : toolCall;
+    });
     // Events already in flight can arrive after STOP. Do not let those
     // transient handles leave a tool spinner behind while server state
     // is converging; the authoritative rehydrate below restores anything
@@ -507,7 +525,7 @@ export function useThreadSession({
     return isStopping
       ? paired.filter((toolCall) => toolCall.status !== "running")
       : paired;
-  }, [isStopping, messages, liveToolCalls]);
+  }, [isStopping, messages, liveToolCalls, threadId]);
   const todos =
     ((stream.values as Record<string, unknown>).todos as Todo[] | undefined) ??
     EMPTY_TODOS;

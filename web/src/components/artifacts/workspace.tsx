@@ -30,12 +30,15 @@ import { humanizeToolName } from "@/components/ai-elements/chain-of-thought";
 import { McpAppWidget } from "@/app/(protected)/agents/[id]/chat/components/mcp-app-widget";
 import type { DisplayedApp } from "@/app/(protected)/agents/[id]/chat/components/mcp-app-widget";
 import { ArtifactViewer, decodeArtifactText, Loading } from "./viewers";
+import { ImageGallery } from "./image-gallery";
+import type { ImageGalleryData } from "@/lib/transcript";
 import { FileTypeIcon, extension, tone } from "./file-type-icon";
 import {
   ArtifactConflictError,
   contentUrl,
   listArtifacts,
   readArtifact,
+  readGalleryImage,
   saveArtifact,
   slidesExportUrl,
 } from "@/lib/api/resources/artifacts";
@@ -45,6 +48,7 @@ import type { Artifact } from "@/lib/api/resources/artifacts";
 // MCP apps are thread outputs too: inline by default, and while one is open in
 // the panel (the MCP Apps `fullscreen` display mode) its inline spot is a card.
 const ArtifactContext = createContext<{
+  threadId?: string;
   items: Artifact[];
   selectedId?: string;
   open: (item: Artifact) => void;
@@ -341,6 +345,20 @@ export function ArtifactCards({ toolCallId }: { toolCallId: string }) {
         }}
       />
     ));
+}
+
+/** An image gallery returned by `show_images`, read through the thread's
+ *  authorized artifact routes. */
+export function GallerySlot({ gallery }: { gallery: ImageGalleryData }) {
+  const { threadId } = useContext(ArtifactContext);
+  const load = useCallback(
+    (imageId: string, signal: AbortSignal) => {
+      if (!threadId) return Promise.reject(new Error("No conversation"));
+      return readGalleryImage(threadId, imageId, signal);
+    },
+    [threadId],
+  );
+  return <ImageGallery gallery={gallery} load={load} />;
 }
 
 /** Resolve attachment references on human messages against the thread files. */
@@ -757,6 +775,7 @@ export function ArtifactWorkspace({
   return (
     <ArtifactContext.Provider
       value={{
+        threadId,
         items,
         selectedId: selected?.id,
         open,

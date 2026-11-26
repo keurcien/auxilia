@@ -22,7 +22,10 @@ from app.model_providers.whitelist import get_whitelist
 from app.runtime.api.costs import CostService
 from app.runtime.checkpoints import checkpoint_thread_id, get_checkpoint_state
 from app.runtime.hitl import pending_interrupt
-from app.runtime.protocol.messages import serialize_public_message
+from app.runtime.protocol.messages import (
+    public_image_gallery,
+    serialize_public_message,
+)
 from app.runtime.runs.repository import RunRepository
 from app.runtime.runs.schemas import RunResponse
 from app.runtime.toolset import sanitize_tool_name
@@ -138,6 +141,10 @@ def _referenced_artifact_ids(messages: list[Any]) -> list[UUID]:
                         found[UUID(value)] = None
                 except ValueError:
                     continue
+        gallery = public_image_gallery(artifact)
+        if gallery is not None:
+            for image in gallery["images"]:
+                found[UUID(image["id"])] = None
     return list(found)
 
 

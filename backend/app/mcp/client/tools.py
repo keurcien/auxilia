@@ -312,6 +312,23 @@ def normalize_mcp_tool_content(content: Any) -> Any:
 
     normalized: list[Any] = []
     for block in content:
+        if (
+            isinstance(block, dict)
+            and block.get("type") == "image"
+            and isinstance(block.get("url"), str)
+            and not block["url"].startswith(("https://", "http://", "data:"))
+        ):
+            # A resource link: providers cannot fetch a server-defined scheme.
+            normalized.append(
+                create_text_block(
+                    text=(
+                        f"Image resource: {block['url']}. To display it, call "
+                        "show_images with this resource_uri and this tool's "
+                        "MCP server name."
+                    )
+                )
+            )
+            continue
         if not isinstance(block, dict) or block.get("type") != "file":
             normalized.append(block)
             continue

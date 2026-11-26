@@ -7,6 +7,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from fastmcp.client import Client
 from langchain_core._api import LangChainBetaWarning
 from langchain_core.tools import BaseTool
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -350,8 +351,13 @@ class MCPResolutionScope:
 class Toolset:
     """Resolved, ready-to-use tools from MCP servers."""
 
-    def __init__(self, tools: list[AgentTool]):
+    def __init__(
+        self, tools: list[AgentTool], clients: dict[str, Client] | None = None
+    ):
         self.tools = tools
+        # Live sessions by server name, open for the run; image galleries read
+        # MCP resources through them with the run's own credentials.
+        self.clients = clients or {}
 
     @property
     def all(self) -> list[BaseTool]:
@@ -507,6 +513,7 @@ class Toolset:
 
         async with AsyncExitStack() as stack:
             unavailable_servers: set[str] = set()
+            clients: dict[str, Client] = {}
 
             async def open_server(
                 server_name: str, spec: ConnectionSpec
@@ -553,6 +560,9 @@ class Toolset:
                     return None
 
                 stack.push_async_exit(adapter)
+                # The adapter connects a clone of `client`, not `client` itself.
+                if isinstance(adapter.client, Client):
+                    clients[server_name] = adapter.client
                 for tool in lc_tools:
                     renamed_keys = sanitize_mcp_property_keys(tool)
                     if renamed_keys:
@@ -609,7 +619,7 @@ class Toolset:
                 prepared.managed_allowed_tools,
                 prepared.server_id_by_name,
             )
-            toolset = cls(tools=agent_tools)
+            toolset = cls(tools=agent_tools, clients=clients)
             toolset.bound_artifacts(ui=prepared.apply_ui)
             yield toolset
 

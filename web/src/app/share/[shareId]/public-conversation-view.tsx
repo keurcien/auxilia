@@ -20,7 +20,8 @@ import {
 	MessageSquare,
 } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ImageGallery } from "@/components/artifacts/image-gallery";
 import {
 	Conversation,
 	ConversationContent,
@@ -42,6 +43,7 @@ import {
 import {
 	getAttachmentIds,
 	getFileAttachments,
+	getImageGallery,
 	getReasoning,
 	getToolMetadata,
 	pairToolCalls,
@@ -606,6 +608,17 @@ function PublicTranscript({
 		() => new Map(conversation.artifacts.map((item) => [item.id, item])),
 		[conversation.artifacts],
 	);
+	const loadImage = useCallback(
+		async (imageId: string) => {
+			const blob = await getPublicArtifact(shareId, imageId, token).catch(
+				() => {
+					throw new Error("This shared image is unavailable.");
+				},
+			);
+			return new Blob([await blob.arrayBuffer()], { type: "image/webp" });
+		},
+		[shareId, token],
+	);
 	const artifactsByToolCall = useMemo(() => {
 		const grouped = new Map<string, PublicConversationArtifact[]>();
 		for (const artifact of conversation.artifacts) {
@@ -729,21 +742,26 @@ function PublicTranscript({
 						</div>
 					</details>
 				)}
-				{calls.map((call) => (
-					<div key={call.id}>
-						<ToolCall call={call} describe={describeTool} />
-						{(artifactsByToolCall.get(call.callId ?? call.id) ?? []).map(
-							(artifact) => (
-								<SharedFile
-									key={artifact.id}
-									artifact={artifact}
-									shareId={shareId}
-									token={token}
-								/>
-							),
-						)}
-					</div>
-				))}
+				{calls.map((call) => {
+					const gallery = getImageGallery(call.artifact);
+					const galleryIds = new Set(gallery?.images.map((image) => image.id));
+					return (
+						<div key={call.id}>
+							<ToolCall call={call} describe={describeTool} />
+							{gallery && <ImageGallery gallery={gallery} load={loadImage} />}
+							{(artifactsByToolCall.get(call.callId ?? call.id) ?? [])
+								.filter((artifact) => !galleryIds.has(artifact.id))
+								.map((artifact) => (
+									<SharedFile
+										key={artifact.id}
+										artifact={artifact}
+										shareId={shareId}
+										token={token}
+									/>
+								))}
+						</div>
+					);
+				})}
 				{message.text && (
 					<Message from="assistant">
 						<MessageContent>

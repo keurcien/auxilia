@@ -108,6 +108,27 @@ export async function readArtifact(
   return response.arrayBuffer();
 }
 
+/** One image of a chat gallery, typed for display. The backend always stores
+ *  gallery previews as WebP and serves them as an opaque download. */
+export async function readGalleryImage(
+  threadId: string,
+  imageId: string,
+  signal: AbortSignal,
+): Promise<Blob> {
+  const response = await protocolFetch(
+    `${API_BASE_URL}/threads/${encodeURIComponent(threadId)}/artifacts/${encodeURIComponent(imageId)}/content`,
+    { signal },
+  );
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403 || response.status === 404
+        ? "You do not have access to this image."
+        : "This image could not be loaded.",
+    );
+  }
+  return new Blob([await response.arrayBuffer()], { type: "image/webp" });
+}
+
 /** Save an edited file over the artifact. `If-Match` is the version the edit
  *  started from: a newer version (the agent presented it again) is a 409. */
 export async function saveArtifact(

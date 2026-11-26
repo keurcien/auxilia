@@ -4,7 +4,7 @@ from sqlalchemy import case, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from app.artifacts.models import ArtifactDB
+from app.artifacts.models import GALLERY_ORIGIN, ArtifactDB
 from app.repository import BaseRepository
 
 
@@ -24,6 +24,7 @@ class ArtifactRepository(BaseRepository[ArtifactDB]):
         stmt = select(ArtifactDB).where(
             ArtifactDB.workspace_id == self.workspace_id,
             ArtifactDB.thread_id == thread_id,
+            ArtifactDB.origin != GALLERY_ORIGIN,
         )
         if after is not None:
             cursor = (
@@ -81,6 +82,7 @@ class ArtifactRepository(BaseRepository[ArtifactDB]):
             .where(
                 ArtifactDB.workspace_id == self.workspace_id,
                 ArtifactDB.thread_id == thread_id,
+                ArtifactDB.origin != GALLERY_ORIGIN,
                 ArtifactDB.storage_kind == kind,
                 col(ArtifactDB.storage_bucket).is_not_distinct_from(bucket),
                 col(ArtifactDB.storage_endpoint).is_not_distinct_from(endpoint),

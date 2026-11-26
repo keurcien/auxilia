@@ -22,7 +22,7 @@ from app.artifacts.files import (
     read_bytes,
 )
 from app.artifacts.google_slides import find_export, slides_url, upload_as_slides
-from app.artifacts.models import ArtifactDB
+from app.artifacts.models import GALLERY_ORIGIN, ArtifactDB
 from app.artifacts.repository import ArtifactRepository
 from app.artifacts.schemas import ArtifactResponse, PresentFile
 from app.artifacts.settings import artifact_settings
@@ -234,6 +234,49 @@ class ArtifactService(BaseService[ArtifactDB, ArtifactRepository]):
         row.sandbox_id = backend.id
         await self._store(row, data, backend)
         return describe(await self.repository.save(row))
+
+    async def publish_gallery_image(
+        self,
+        *,
+        thread_id: str,
+        tool_call_id: str,
+        position: int,
+        title: str,
+        filename: str,
+        mime_type: str,
+        data: bytes,
+    ) -> ArtifactDB:
+        """Store one image of a chat gallery. Gallery images are served through
+        the thread's artifact routes but stay out of its file list and sandbox."""
+        if not artifact_settings.provider:
+            raise DomainValidationError(
+                "Image galleries need a configured object store"
+            )
+        if len(data) > artifact_settings.max_bytes:
+            raise DomainValidationError("Image exceeds the size limit")
+        artifact_id = uuid5(
+            NAMESPACE_URL, f"auxilia:{thread_id}:{tool_call_id}:gallery:{position}"
+        )
+        row = await self.repository.in_thread(thread_id, artifact_id)
+        if row is not None:
+            return row  # tool replay
+        row = ArtifactDB(
+            id=artifact_id,
+            workspace_id=self.workspace_id,
+            thread_id=thread_id,
+            origin=GALLERY_ORIGIN,
+            source_path=f"gallery/{tool_call_id}/{position}",
+            title=title,
+            tool_call_id=tool_call_id,
+            filename=filename,
+            mime_type=mime_type,
+            size=0,
+            sha256="",
+            storage_kind="",
+            storage_key="",
+        )
+        await self._store(row, data, None)
+        return await self.repository.save(row)
 
     async def attach(
         self, thread_id: str, filename: str, data: bytes

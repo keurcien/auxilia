@@ -50,6 +50,7 @@ class LiveToolsetStub:
 
     def __init__(self, tools: list):
         self.all = tools
+        self.clients = {}
 
 
 def _prepared(tools: list) -> PreparedToolset:
@@ -504,7 +505,7 @@ async def test_plain_agent_is_offered_only_its_own_tools(in_memory_runtime):
 
     await collect(agent, "hello")
 
-    assert {t.name for t in model.bound_tools} == {"add"}
+    assert {t.name for t in model.bound_tools} == {"add", "show_images"}
     system = system_text(model)
     assert system.startswith("You are a test agent")
     assert "write_todos" not in system

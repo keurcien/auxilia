@@ -161,6 +161,56 @@ export function getMcpAppInfo(tc: ToolCallView): McpAppToolInfo | null {
   return resourceUri && serverId ? { resourceUri, serverId } : null;
 }
 
+export type GalleryImageData = {
+  /** Artifact id of the stored preview. */
+  id: string;
+  width: number | null;
+  height: number | null;
+  caption: string | null;
+  /** ISO 8601, when the source knew when the photo was taken. */
+  takenAt: string | null;
+  location: string | null;
+};
+
+export type ImageGalleryData = {
+  title: string | null;
+  images: GalleryImageData[];
+};
+
+const text = (value: unknown): string | null =>
+  typeof value === "string" && value.trim() ? value : null;
+const size = (value: unknown): number | null =>
+  typeof value === "number" && value > 0 ? value : null;
+
+/** The `image_gallery` descriptor `show_images` puts in its result artifact
+ *  (`app/artifacts/gallery.py`, snake_case on the wire). */
+export function getImageGallery(
+  artifact: Record<string, unknown> | undefined,
+): ImageGalleryData | null {
+  const gallery = artifact?.image_gallery as
+    | { title?: unknown; images?: unknown }
+    | undefined;
+  if (!gallery || !Array.isArray(gallery.images)) return null;
+  const images = gallery.images.flatMap((raw): GalleryImageData[] => {
+    if (!raw || typeof raw !== "object") return [];
+    const image = raw as Record<string, unknown>;
+    const id = text(image.id);
+    return id
+      ? [
+          {
+            id,
+            width: size(image.width),
+            height: size(image.height),
+            caption: text(image.caption),
+            takenAt: text(image.taken_at),
+            location: text(image.location),
+          },
+        ]
+      : [];
+  });
+  return images.length > 0 ? { title: text(gallery.title), images } : null;
+}
+
 export function getStructuredContent(
   tc: ToolCallView,
 ): Record<string, unknown> | undefined {
