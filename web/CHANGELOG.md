@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.172](https://github.com/jr-k/auxilia/compare/web-v0.12.171...web-v0.12.172) (2026-11-26)
+
+
+### Bug Fixes
+
+* **auth:** stop the /auth redirect loop on an invalid session ([#367](https://github.com/jr-k/auxilia/issues/367)) ([d77c804](https://github.com/jr-k/auxilia/commit/d77c80474fc99f3a8e2d07b98e7b76262a894a56))
+
 ## [0.12.171](https://github.com/jr-k/auxilia/compare/web-v0.12.170...web-v0.12.171) (2026-11-26)
 
 
