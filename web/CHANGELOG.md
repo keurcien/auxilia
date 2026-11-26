@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.169](https://github.com/jr-k/auxilia/compare/web-v0.12.168...web-v0.12.169) (2026-11-26)
+
+
+### Features
+
+* **projects:** search the parent folder when creating or editing a folder ([#356](https://github.com/jr-k/auxilia/issues/356)) ([69adcde](https://github.com/jr-k/auxilia/commit/69adcde4f87ed4d9a073ed6cad475f94be8b1e9b))
+* **threads:** rename a conversation from projects and the conversation header ([#355](https://github.com/jr-k/auxilia/issues/355)) ([8056020](https://github.com/jr-k/auxilia/commit/805602059fff4da1342e217a988848f29b1008bc))
+
 ## [0.12.168](https://github.com/jr-k/auxilia/compare/web-v0.12.167...web-v0.12.168) (2026-11-25)
 
 
