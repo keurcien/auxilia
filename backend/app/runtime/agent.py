@@ -1202,6 +1202,7 @@ class Agent:
                     thread_id=self.thread.id,
                     source=self.thread.source,
                     clients=self.agent.live.clients,
+                    previews=self.agent.prepared.image_previews,
                 )
             ]
             if general_purpose_tools

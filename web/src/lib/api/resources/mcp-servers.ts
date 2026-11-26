@@ -9,6 +9,8 @@ import { api } from "@/lib/api/client";
 import type { BoundAgent, ToolStatus } from "@/types/agents";
 import type {
 	ConnectionTestResult,
+	ImagePreviewSettings,
+	ImagePreviewSettingsUpdate,
 	ListToolsResult,
 	MCPAuthType,
 	MCPCatalogSyncResult,
@@ -159,6 +161,32 @@ export async function getMcpServerOAuthSecretHint(
 		{ signal: options.signal },
 	);
 	return response.data;
+}
+
+export async function getMcpServerImagePreviews(
+	serverId: string,
+): Promise<ImagePreviewSettings | null> {
+	const response = await api.get<ImagePreviewSettings | null>(
+		`/mcp-servers/${serverId}/image-previews`,
+	);
+	return response.data;
+}
+
+export async function saveMcpServerImagePreviews(
+	serverId: string,
+	update: ImagePreviewSettingsUpdate,
+): Promise<ImagePreviewSettings> {
+	const response = await api.put<ImagePreviewSettings>(
+		`/mcp-servers/${serverId}/image-previews`,
+		update,
+	);
+	return response.data;
+}
+
+export async function deleteMcpServerImagePreviews(
+	serverId: string,
+): Promise<void> {
+	await api.delete(`/mcp-servers/${serverId}/image-previews`);
 }
 
 /** Every user's stored OAuth connection to the server (admin view). */

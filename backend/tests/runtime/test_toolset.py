@@ -344,6 +344,8 @@ class _FakeDB:
         self._rows = rows
 
     async def execute(self, stmt):
+        if stmt.get_final_froms()[0].name == "mcp_server_image_previews":
+            return _FakeResult([])
         return _FakeResult(self._rows)
 
 
@@ -405,7 +407,8 @@ class TestPrepareDerivesInterruptOn:
 
 
 class _CountingDB:
-    """A DB that answers both queries `prepare` makes, and counts them."""
+    """A DB that answers the queries `prepare` makes, and counts the server and
+    credential reads."""
 
     def __init__(self, servers, api_key_rows):
         self._servers = servers
@@ -415,6 +418,8 @@ class _CountingDB:
 
     async def execute(self, stmt):
         table = stmt.get_final_froms()[0].name
+        if table == "mcp_server_image_previews":
+            return _FakeResult([])
         if table == "mcp_servers":
             self.server_queries += 1
             return _FakeResult(self._servers)

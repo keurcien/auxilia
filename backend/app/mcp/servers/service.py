@@ -50,6 +50,7 @@ from app.mcp.servers.models import (
     MCPCredentialScope,
     MCPServerDB,
     MCPServerImageDB,
+    MCPServerImagePreviewDB,
     ServiceCredentialProvider,
     credential_scope_for,
     is_personal_auth,
@@ -59,6 +60,8 @@ from app.mcp.servers.repository import MCPServerRepository
 from app.mcp.servers.schemas import (
     AuthorizationRequired,
     CredentialsRequired,
+    ImagePreviewSettings,
+    ImagePreviewSettingsUpdate,
     MCPCatalogSyncResponse,
     MCPConnectionDisconnectFailure,
     MCPConnectionDisconnectSummary,
@@ -167,6 +170,14 @@ def _user_credential_plaintext(
     return personal_headers_json(
         server.personal_header_names,
         [(header.name.strip(), header.value) for header in payload.headers or []],
+    )
+
+
+def _image_preview_settings(row: MCPServerImagePreviewDB) -> ImagePreviewSettings:
+    return ImagePreviewSettings(
+        url_template=row.url_template,
+        header_name=row.header_name,
+        header_value_set=row.header_value_encrypted is not None,
     )
 
 
@@ -439,6 +450,28 @@ class MCPServerService(BaseService[MCPServerDB, MCPServerRepository]):
             team_ids=team_ids,
             managed_endpoint=managed_endpoint,
         )
+
+    async def get_image_preview(self, server_id: UUID) -> ImagePreviewSettings | None:
+        await self.get_scoped(server_id)
+        row = await self.repository.get_image_preview(server_id)
+        return _image_preview_settings(row) if row else None
+
+    async def save_image_preview(
+        self, server_id: UUID, update: ImagePreviewSettingsUpdate, user_id: UUID
+    ) -> ImagePreviewSettings:
+        await self.get_scoped(server_id)
+        row = await self.repository.save_image_preview(
+            server_id,
+            url_template=update.url_template,
+            header_name=update.header_name,
+            header_value=update.header_value,
+            created_by=user_id,
+        )
+        return _image_preview_settings(row)
+
+    async def delete_image_preview(self, server_id: UUID) -> None:
+        await self.get_scoped(server_id)
+        await self.repository.delete_image_preview(server_id)
 
     async def get_oauth_secret_hint(self, server_id: UUID) -> OAuthSecretHint:
         """Return a non-reversible hint (last 4 chars + length) about the stored

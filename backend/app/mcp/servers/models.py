@@ -209,6 +209,27 @@ class MCPServerServiceCredentialDB(BaseDBModel, table=True):
     created_by: UUID | None = Field(default=None, foreign_key="users.id")
 
 
+class MCPServerImagePreviewDB(BaseDBModel, table=True):
+    """Where the chat gallery downloads the image behind an id returned by one
+    of the server's tools, for servers that return ids but not images.
+
+    ``url_template`` holds one ``{id}`` placeholder; the optional header (e.g.
+    a photo library's API key) is sent on that request only.
+    """
+
+    __tablename__ = "mcp_server_image_previews"
+
+    mcp_server_id: UUID = Field(
+        foreign_key="mcp_servers.id", ondelete="CASCADE", nullable=False, unique=True
+    )
+    url_template: str = Field(max_length=2048, nullable=False)
+    header_name: str | None = Field(default=None, max_length=255)
+    header_value_encrypted: str | None = Field(
+        default=None, sa_column=Column(sa.Text, nullable=True)
+    )
+    created_by: UUID | None = Field(default=None, foreign_key="users.id")
+
+
 class MCPServerUserCredentialDB(BaseDBModel, table=True):
     """One user's own secret for a personal API-key or custom HTTP server.
 

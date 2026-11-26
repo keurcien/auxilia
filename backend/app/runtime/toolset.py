@@ -13,6 +13,7 @@ from langchain_core.tools import BaseTool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.models import AgentMCPServerBase
+from app.artifacts.gallery import ImagePreviewSource
 from app.database_connections.tools import DBHUB_MANAGED_BY, allowed_tool_names
 from app.exceptions import root_cause
 from app.mcp.client.connection import ConnectionSpec, build_client
@@ -165,6 +166,7 @@ class PreparedToolset:
     managed_allowed_tools: dict[str, set[str]] = field(default_factory=dict)
     server_description_by_name: dict[str, str | None] = field(default_factory=dict)
     server_instructions_by_name: dict[str, str] = field(default_factory=dict)
+    image_previews: dict[str, ImagePreviewSource] = field(default_factory=dict)
 
     @property
     def server_names(self) -> list[str]:
@@ -452,6 +454,13 @@ class Toolset:
         server_description_by_name = {
             server.name: server.description for server in mcp_servers
         }
+        preview_rows = await MCPServerRepository(db, workspace_id).list_image_previews(
+            list(server_name_by_id)
+        )
+        image_previews = {
+            server_name_by_id[row.mcp_server_id]: ImagePreviewSource.from_row(row)
+            for row in preview_rows
+        }
 
         # 4. Derive interrupt_on from the persisted tool map — the synced
         #    settings already hold every tool name, so no session is opened.
@@ -478,6 +487,7 @@ class Toolset:
             managed_allowed_tools=managed_allowed_tools,
             server_id_by_name=server_id_by_name,
             server_description_by_name=server_description_by_name,
+            image_previews=image_previews,
             interrupt_on=interrupt_on,
             apply_ui=apply_ui,
         )

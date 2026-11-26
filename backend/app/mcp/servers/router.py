@@ -22,6 +22,8 @@ from app.mcp.servers.schemas import (
     ConnectionProbeRequest,
     ConnectionTestResult,
     CredentialsRequired,
+    ImagePreviewSettings,
+    ImagePreviewSettingsUpdate,
     ListToolsResult,
     MCPCatalogSyncResponse,
     MCPConnectionDisconnectSummary,
@@ -224,6 +226,35 @@ async def duplicate_mcp_server(
     """Admin-only: copy a server, including its write-only shared secrets."""
     created = await service.duplicate(server_id, current_user.id)
     return await service.to_response(created)
+
+
+@router.get("/{server_id}/image-previews")
+async def get_image_previews(
+    server_id: UUID,
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> ImagePreviewSettings | None:
+    """Admin-only: how the chat gallery fetches images by id for this server."""
+    return await service.get_image_preview(server_id)
+
+
+@router.put("/{server_id}/image-previews")
+async def save_image_previews(
+    server_id: UUID,
+    update: ImagePreviewSettingsUpdate,
+    current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> ImagePreviewSettings:
+    return await service.save_image_preview(server_id, update, current_user.id)
+
+
+@router.delete("/{server_id}/image-previews", status_code=204)
+async def delete_image_previews(
+    server_id: UUID,
+    _current_user: UserDB = Depends(require_admin),
+    service: MCPServerService = Depends(get_mcp_server_service),
+) -> None:
+    await service.delete_image_preview(server_id)
 
 
 @router.get("/{server_id}/oauth-secret-hint", response_model=OAuthSecretHint)

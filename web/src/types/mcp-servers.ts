@@ -108,6 +108,20 @@ export interface MCPServerUpdate {
 	disabledTools?: string[];
 }
 
+/** How the chat gallery downloads an image from an id the server's tools return. */
+export interface ImagePreviewSettings {
+	urlTemplate: string;
+	headerName: string | null;
+	headerValueSet: boolean;
+}
+
+export interface ImagePreviewSettingsUpdate {
+	urlTemplate: string;
+	headerName: string | null;
+	/** Omitted keeps the stored value while the header name is unchanged. */
+	headerValue?: string;
+}
+
 export interface OAuthSecretHint {
 	isSet: boolean;
 	last4?: string | null;

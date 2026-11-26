@@ -13,6 +13,7 @@ from app.mcp.servers.models import (
     MCPServerAPIKeyDB,
     MCPServerDB,
     MCPServerImageDB,
+    MCPServerImagePreviewDB,
     MCPServerOAuthCredentialsDB,
     MCPServerServiceCredentialDB,
     MCPServerTeamDB,
@@ -256,6 +257,18 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
                 )
             )
 
+        preview = await self.get_image_preview(source.id)
+        if preview is not None:
+            self.db.add(
+                MCPServerImagePreviewDB(
+                    mcp_server_id=copy.id,
+                    url_template=preview.url_template,
+                    header_name=preview.header_name,
+                    header_value_encrypted=preview.header_value_encrypted,
+                    created_by=owner_id,
+                )
+            )
+
         service_credential = await self.get_service_credential(source.id)
         if service_credential is not None:
             self.db.add(
@@ -408,6 +421,63 @@ class MCPServerRepository(BaseRepository[MCPServerDB]):
             creds.client_secret_encrypted = encrypt_value(client_secret)
         if auth_method is not None:
             creds.token_endpoint_auth_method = auth_method
+        await self.db.flush()
+
+    async def get_image_preview(
+        self, server_id: UUID
+    ) -> MCPServerImagePreviewDB | None:
+        stmt = select(MCPServerImagePreviewDB).where(
+            MCPServerImagePreviewDB.mcp_server_id == server_id
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_image_previews(
+        self, server_ids: Collection[UUID]
+    ) -> list[MCPServerImagePreviewDB]:
+        if not server_ids:
+            return []
+        stmt = select(MCPServerImagePreviewDB).where(
+            MCPServerImagePreviewDB.mcp_server_id.in_(server_ids)  # type: ignore[attr-defined]
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def save_image_preview(
+        self,
+        server_id: UUID,
+        *,
+        url_template: str,
+        header_name: str | None,
+        header_value: str | None,
+        created_by: UUID,
+    ) -> MCPServerImagePreviewDB:
+        """`header_value=None` keeps the stored value while the header name is
+        unchanged; a renamed or removed header drops it."""
+        row = await self.get_image_preview(server_id)
+        if row is None:
+            row = MCPServerImagePreviewDB(
+                mcp_server_id=server_id,
+                url_template=url_template,
+                created_by=created_by,
+            )
+            self.db.add(row)
+        elif header_name != row.header_name:
+            row.header_value_encrypted = None
+        row.url_template = url_template
+        row.header_name = header_name
+        if header_name is None:
+            row.header_value_encrypted = None
+        elif header_value is not None:
+            row.header_value_encrypted = encrypt_value(header_value)
+        await self.db.flush()
+        return row
+
+    async def delete_image_preview(self, server_id: UUID) -> None:
+        stmt = delete(MCPServerImagePreviewDB).where(
+            MCPServerImagePreviewDB.mcp_server_id == server_id  # type: ignore[arg-type]
+        )
+        await self.db.execute(stmt)
         await self.db.flush()
 
     async def get_service_credential(

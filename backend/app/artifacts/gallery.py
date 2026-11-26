@@ -16,10 +16,11 @@ import re
 import socket
 import warnings
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
 from typing import Annotated, Any
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 from uuid import UUID
 
 import httpx
@@ -31,7 +32,9 @@ from pydantic import BaseModel, Field, model_validator
 from app.artifacts.service import ArtifactService
 from app.artifacts.settings import artifact_settings
 from app.database import AsyncSessionLocal
+from app.mcp.servers.models import MCPServerImagePreviewDB
 from app.threads.models import ThreadSource
+from app.utils.encryption import decrypt_value
 from app.version import BACKEND_VERSION
 
 
@@ -59,10 +62,17 @@ class GalleryImage(BaseModel):
         description="MCP resource URI of the image, as returned by a tool of a "
         "connected MCP server (e.g. a photo library's thumbnail resource).",
     )
+    asset_id: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Id of the image (photo, asset, file) as returned by a tool "
+        "of a server listed as serving image previews by id.",
+    )
     server: str | None = Field(
         default=None,
         max_length=200,
-        description="Name of the MCP server whose tool returned resource_uri.",
+        description="Name of the MCP server whose tool returned resource_uri or "
+        "asset_id.",
     )
     url: str | None = Field(
         default=None, max_length=2048, description="A public https:// image URL."
@@ -81,10 +91,14 @@ class GalleryImage(BaseModel):
 
     @model_validator(mode="after")
     def one_source(self):
-        if bool(self.url) == bool(self.resource_uri):
-            raise ValueError("Give each image either url or resource_uri")
-        if self.resource_uri and not self.server:
-            raise ValueError("resource_uri needs the server that returned it")
+        if sum(map(bool, (self.url, self.resource_uri, self.asset_id))) != 1:
+            raise ValueError(
+                "Give each image exactly one of url, resource_uri, asset_id"
+            )
+        if (self.resource_uri or self.asset_id) and not self.server:
+            raise ValueError(
+                "resource_uri and asset_id need the server that returned them"
+            )
         return self
 
 
@@ -96,15 +110,22 @@ def _name_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
-def find_client(clients: Mapping[str, Client], name: str) -> Client:
-    """The open session of the server the model named. Tool names expose a
-    sanitized server name, so `photos_test` also finds "Photos test"."""
-    if name in clients:
-        return clients[name]
-    for server, client in clients.items():
+def find_server[T](servers: Mapping[str, T], name: str) -> T | None:
+    """The entry of the server the model named. Tool names expose a sanitized
+    server name, so `photos_test` also finds "Photos test"."""
+    if name in servers:
+        return servers[name]
+    for server, value in servers.items():
         if _name_key(server) == _name_key(name):
-            return client
-    raise ImageUnavailableError(f"no connected MCP server is named {name!r}")
+            return value
+    return None
+
+
+def find_client(clients: Mapping[str, Client], name: str) -> Client:
+    client = find_server(clients, name)
+    if client is None:
+        raise ImageUnavailableError(f"no connected MCP server is named {name!r}")
+    return client
 
 
 async def read_mcp_image(client: Client, uri: str) -> bytes:
@@ -187,22 +208,76 @@ async def fetch_url_image(url: str) -> bytes:
                 if response.is_redirect and response.headers.get("location"):
                     url = urljoin(url, response.headers["location"])
                     continue
-                if response.status_code != 200:
-                    raise ImageUnavailableError(
-                        f"the image server answered HTTP {response.status_code}"
-                    )
-                data = bytearray()
-                async for chunk in response.aiter_bytes():
-                    data += chunk
-                    if len(data) > limit:
-                        raise ImageUnavailableError(
-                            "the image is larger than the size limit"
-                        )
-                return bytes(data)
+                return await read_image_body(response, limit)
         except httpx.HTTPError as exc:
             raise ImageUnavailableError(
                 f"the image could not be downloaded ({type(exc).__name__})"
             ) from exc
+    raise ImageUnavailableError("the image URL redirects too many times")
+
+
+async def read_image_body(response: httpx.Response, limit: int) -> bytes:
+    if response.status_code != 200:
+        raise ImageUnavailableError(
+            f"the image server answered HTTP {response.status_code}"
+        )
+    data = bytearray()
+    async for chunk in response.aiter_bytes():
+        data += chunk
+        if len(data) > limit:
+            raise ImageUnavailableError("the image is larger than the size limit")
+    return bytes(data)
+
+
+@dataclass(frozen=True)
+class ImagePreviewSource:
+    """An admin-configured image endpoint of one MCP server: the id a tool
+    returned goes into the URL, the secret header stays on the backend."""
+
+    url_template: str
+    headers: dict[str, str]
+
+    @classmethod
+    def from_row(cls, row: MCPServerImagePreviewDB) -> ImagePreviewSource:
+        headers = {}
+        if row.header_name and row.header_value_encrypted:
+            headers[row.header_name] = decrypt_value(row.header_value_encrypted)
+        return cls(url_template=row.url_template, headers=headers)
+
+    def url_for(self, asset_id: str) -> str:
+        # Encoded so an id can never leave its slot in the path or query.
+        return self.url_template.replace("{id}", quote(asset_id.strip(), safe=""))
+
+
+async def fetch_preview_image(source: ImagePreviewSource, asset_id: str) -> bytes:
+    """Download from an admin-configured endpoint. Its host is trusted (it may
+    be on the private network), so only same-origin redirects are followed:
+    the secret header must never reach another host."""
+    if not asset_id.strip():
+        raise ImageUnavailableError("the image id is empty")
+    url = source.url_for(asset_id)
+    origin = urlsplit(url)[:2]
+    limit = artifact_settings.max_bytes
+    headers = {"Accept": "image/*", "User-Agent": USER_AGENT, **source.headers}
+    async with httpx.AsyncClient(
+        timeout=FETCH_TIMEOUT_SECONDS, follow_redirects=False
+    ) as client:
+        for _ in range(MAX_REDIRECTS + 1):
+            try:
+                async with client.stream("GET", url, headers=headers) as response:
+                    location = response.headers.get("location")
+                    if response.is_redirect and location:
+                        url = urljoin(url, location)
+                        if urlsplit(url)[:2] != origin:
+                            raise ImageUnavailableError(
+                                "the image server redirected to another host"
+                            )
+                        continue
+                    return await read_image_body(response, limit)
+            except httpx.HTTPError as exc:
+                raise ImageUnavailableError(
+                    f"the image could not be downloaded ({type(exc).__name__})"
+                ) from exc
     raise ImageUnavailableError("the image URL redirects too many times")
 
 
@@ -259,6 +334,7 @@ def show_images_tool(
     thread_id: str,
     source: ThreadSource,
     clients: Mapping[str, Client],
+    previews: Mapping[str, ImagePreviewSource],
 ):
     @tool(response_format="content_and_artifact")
     async def show_images(
@@ -273,9 +349,12 @@ def show_images_tool(
         Pass the images in the order they should appear, e.g. newest first for
         "my last 5 photos". A single image is shown on its own.
         Each image needs exactly one source:
+        - asset_id + server: the image's id as returned by a tool of a server
+          listed below as serving previews by id, and that server's name. The
+          backend downloads the image with credentials the model never sees,
+          so tool results that only hold ids or private links are enough.
         - resource_uri + server: an MCP resource URI returned by a connected
-          server's tool, and that server's name. Preferred for private
-          libraries: the server's credentials stay on the backend.
+          server's tool, and that server's name.
         - url: a public https:// image URL.
         Add taken_at (ISO 8601) and location when the source tool gives them;
         they appear as a discreet caption. Never pass image data.
@@ -300,7 +379,14 @@ def show_images_tool(
 
         async def prepare(image: GalleryImage):
             async with semaphore:
-                if image.resource_uri:
+                if image.asset_id:
+                    preview = find_server(previews, image.server or "")
+                    if preview is None:
+                        raise ImageUnavailableError(
+                            f"{image.server!r} does not serve image previews by id"
+                        )
+                    data = await fetch_preview_image(preview, image.asset_id)
+                elif image.resource_uri:
                     client = find_client(clients, image.server or "")
                     data = await read_mcp_image(client, image.resource_uri)
                 else:
@@ -393,4 +479,6 @@ def show_images_tool(
         # Tool-result content must be a string for every provider adapter.
         return json.dumps(summary), artifact
 
+    served = ", ".join(previews) or "none"
+    show_images.description += f"\n\nServers serving previews by id: {served}."
     return show_images

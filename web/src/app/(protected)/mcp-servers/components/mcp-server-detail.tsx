@@ -35,6 +35,7 @@ import {
 import { AuthTypeBadge } from "./auth-type-badge";
 import type { ResourceVisibility } from "@/types/visibility";
 import { ConnectedUsersPanel } from "./connected-users-panel";
+import { ImagePreviewsPanel } from "./image-previews-panel";
 import { ConnectionTestDialog } from "./connection-test-dialog";
 import { MCPServerToolsPanel } from "./mcp-server-tools-panel";
 import { MCPServerUsedBy } from "./mcp-server-used-by";
@@ -180,9 +181,9 @@ export default function MCPServerDetail({
 	const [disabledTools, setDisabledTools] = useState(
 		initialServer.disabledTools ?? [],
 	);
-	const [rightPanel, setRightPanel] = useState<"tools" | "connections">(
-		"tools",
-	);
+	const [rightPanel, setRightPanel] = useState<
+		"tools" | "connections" | "images"
+	>("tools");
 	const [mobileTab, setMobileTab] = useState<"configuration" | "more">(
 		"configuration",
 	);
@@ -679,7 +680,10 @@ export default function MCPServerDetail({
 	) : (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="mb-5 flex w-fit shrink-0 rounded-[8px] bg-hover p-1 dark:bg-white/5">
-				{(["tools", "connections"] as const).map((panel) => (
+				{(isAdmin
+					? (["tools", "connections", "images"] as const)
+					: (["tools", "connections"] as const)
+				).map((panel) => (
 					<button
 						key={panel}
 						type="button"
@@ -704,6 +708,8 @@ export default function MCPServerDetail({
 					disabledTools={server.disabledTools ?? []}
 					readOnly
 				/>
+			) : rightPanel === "images" && isAdmin ? (
+				<ImagePreviewsPanel key={server.id} serverId={server.id} />
 			) : (
 				<ConnectedUsersPanel
 					serverId={server.id}

@@ -1,5 +1,7 @@
+import re
 from datetime import datetime
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import field_serializer, field_validator
@@ -206,6 +208,56 @@ class OAuthSecretHint(SQLModel):
     is_set: bool = False
     last4: str | None = None
     length: int | None = None
+
+
+class ImagePreviewSettings(SQLModel):
+    """How the chat gallery fetches the image behind an id the server's tools
+    return. Admin-only; the header value is write-only."""
+
+    url_template: str
+    header_name: str | None = None
+    header_value_set: bool = False
+
+
+class ImagePreviewSettingsUpdate(SQLModel):
+    url_template: str = Field(max_length=2048)
+    header_name: str | None = Field(default=None, max_length=255)
+    # None keeps the stored value (while the header name is unchanged).
+    header_value: str | None = Field(default=None, max_length=4096)
+
+    @field_validator("url_template")
+    @classmethod
+    def _template(cls, value: str) -> str:
+        value = value.strip()
+        parts = urlsplit(value.replace("{id}", "ID"))
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("Use an http:// or https:// URL")
+        if value.count("{id}") != 1 or "{id}" in urlsplit(value).netloc:
+            raise ValueError("Put exactly one {id} placeholder in the path or query")
+        if parts.username or parts.password or parts.fragment:
+            raise ValueError("Leave credentials and #fragments out of the URL")
+        return value
+
+    @field_validator("header_name")
+    @classmethod
+    def _header_name(cls, value: str | None) -> str | None:
+        value = (value or "").strip()
+        if not value:
+            return None
+        if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", value):
+            raise ValueError("Not a valid HTTP header name")
+        if value.lower() in {"host", "content-length", "cookie", "connection"}:
+            raise ValueError(f"The {value} header can't be set")
+        return value
+
+    @field_validator("header_value")
+    @classmethod
+    def _header_value(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if any(char in value for char in "\r\n\0"):
+            raise ValueError("The header value can't contain line breaks")
+        return value
 
 
 class OAuthCallbackInfo(SQLModel):
