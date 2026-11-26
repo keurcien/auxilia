@@ -31,6 +31,7 @@ import {
 	MessageContent,
 	MessageResponse,
 } from "@/components/ai-elements/message";
+import { RefusalNotice } from "@/components/ai-elements/refusal";
 import {
 	ChainStepIcon,
 	isSandboxTool,
@@ -45,6 +46,7 @@ import {
 	getFileAttachments,
 	getImageGallery,
 	getReasoning,
+	getRefusal,
 	getToolMetadata,
 	pairToolCalls,
 	type ToolCallView,
@@ -731,7 +733,9 @@ function PublicTranscript({
 		if (!isAIMessage(message)) return null;
 		const reasoning = getReasoning(message);
 		const calls = message.id ? (toolsByMessage.get(message.id) ?? []) : [];
-		if (!reasoning && calls.length === 0 && !message.text) return null;
+		const refusal = message.text ? null : getRefusal(message);
+		if (!reasoning && calls.length === 0 && !message.text && !refusal)
+			return null;
 		return (
 			<div key={message.id ?? index} className="py-2">
 				{reasoning && (
@@ -766,6 +770,13 @@ function PublicTranscript({
 					<Message from="assistant">
 						<MessageContent>
 							<MessageResponse>{message.text}</MessageResponse>
+						</MessageContent>
+					</Message>
+				)}
+				{refusal && (
+					<Message from="assistant">
+						<MessageContent>
+							<RefusalNotice refusal={refusal} />
 						</MessageContent>
 					</Message>
 				)}

@@ -39,6 +39,7 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 import { Loader } from "@/components/ai-elements/loader";
+import { RefusalNotice } from "@/components/ai-elements/refusal";
 import {
   ChainOfThought,
   ChainReasoningStep,
@@ -92,6 +93,7 @@ import {
   getImageGallery,
   getMcpAppInfo,
   getReasoning,
+  getRefusal,
   getStructuredContent,
   getToolStepState,
   groupChains,
@@ -346,6 +348,7 @@ export const ConversationBody = memo(function ConversationBody({
         const sources = getWebSearchSources(message);
         const chain = message.id ? chains.get(message.id) : undefined;
         const isLast = index === lastVisibleIndex;
+        const refusal = text ? null : getRefusal(message);
 
         return (
           <Fragment key={key}>
@@ -395,6 +398,22 @@ export const ConversationBody = memo(function ConversationBody({
                       label="Copy"
                     >
                       <CopyIcon className="size-3" />
+                    </MessageAction>
+                  </MessageActions>
+                )}
+              </>
+            )}
+            {refusal && (
+              <>
+                <Message from="assistant">
+                  <MessageContent>
+                    <RefusalNotice refusal={refusal} />
+                  </MessageContent>
+                </Message>
+                {!isLoading && isLast && !modelUnavailable && !readOnly && (
+                  <MessageActions>
+                    <MessageAction onClick={onRegenerate} label="Retry">
+                      <RefreshCcwIcon className="size-3" />
                     </MessageAction>
                   </MessageActions>
                 )}

@@ -12,6 +12,46 @@ export function getReasoning(message: BaseMessage): string | null {
   return typeof legacy === "string" && legacy ? legacy : null;
 }
 
+export type RefusalInfo = {
+  /** The provider's human-readable reason (e.g. Anthropic's cyber safeguard). */
+  explanation: string;
+  /** The refusal category when the provider tags one (e.g. `cyber`). */
+  category: string | null;
+};
+
+/** A model refusal: the run completes with an empty answer, the reason sitting
+ *  in `response_metadata.stop_details`. Surfaced so an empty assistant turn
+ *  reads as a refusal instead of silence. */
+export function getRefusal(message: BaseMessage): RefusalInfo | null {
+  const metadata = message.response_metadata as
+    | {
+        stop_details?: {
+          type?: unknown;
+          explanation?: unknown;
+          category?: unknown;
+        };
+        stop_reason?: unknown;
+        normalized_finish_reason?: unknown;
+      }
+    | undefined;
+  if (metadata == null) return null;
+  const details = metadata.stop_details;
+  const isRefusal =
+    details?.type === "refusal" ||
+    metadata.stop_reason === "refusal" ||
+    metadata.normalized_finish_reason === "refusal";
+  if (!isRefusal) return null;
+  const explanation =
+    typeof details?.explanation === "string" && details.explanation.trim()
+      ? details.explanation.trim()
+      : "The model declined to respond to this request.";
+  const category =
+    typeof details?.category === "string" && details.category.trim()
+      ? details.category.trim()
+      : null;
+  return { explanation, category };
+}
+
 /** Attachments of a human turn — the `image_url` / `file` blocks the composer
  *  submits (see `handleSubmit` on the chat page). */
 export function getFileAttachments(message: BaseMessage): AttachmentData[] {
