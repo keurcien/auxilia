@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.129](https://github.com/jr-k/auxilia/compare/backend-v0.11.128...backend-v0.11.129) (2026-11-26)
+
+
+### Features
+
+* **chat:** show images from tools in an inline gallery ([#362](https://github.com/jr-k/auxilia/issues/362)) ([20626f4](https://github.com/jr-k/auxilia/commit/20626f47a5c2cd4d0e09eb2d900a9dd62b8e6538))
+
 ## [0.11.128](https://github.com/jr-k/auxilia/compare/backend-v0.11.127...backend-v0.11.128) (2026-11-26)
 
 
