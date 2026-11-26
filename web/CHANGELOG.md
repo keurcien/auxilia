@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.171](https://github.com/jr-k/auxilia/compare/web-v0.12.170...web-v0.12.171) (2026-11-26)
+
+
+### Features
+
+* **agents:** duplicate agents and MCP servers from their lists ([#364](https://github.com/jr-k/auxilia/issues/364)) ([a5eb145](https://github.com/jr-k/auxilia/commit/a5eb145e1b3d120663f4d1ce07e8cc56405a8217))
+* **chat:** show a notice when the model refuses to answer ([#365](https://github.com/jr-k/auxilia/issues/365)) ([216f2c5](https://github.com/jr-k/auxilia/commit/216f2c546bf72cff930c102479f837c7a42cc745))
+
 ## [0.12.170](https://github.com/jr-k/auxilia/compare/web-v0.12.169...web-v0.12.170) (2026-11-26)
 
 

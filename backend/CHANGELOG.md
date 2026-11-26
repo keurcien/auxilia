@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.130](https://github.com/jr-k/auxilia/compare/backend-v0.11.129...backend-v0.11.130) (2026-11-26)
+
+
+### Features
+
+* **agents:** duplicate agents and MCP servers from their lists ([#364](https://github.com/jr-k/auxilia/issues/364)) ([a5eb145](https://github.com/jr-k/auxilia/commit/a5eb145e1b3d120663f4d1ce07e8cc56405a8217))
+
 ## [0.11.129](https://github.com/jr-k/auxilia/compare/backend-v0.11.128...backend-v0.11.129) (2026-11-26)
 
 
