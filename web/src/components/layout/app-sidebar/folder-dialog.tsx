@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import {
+	AsyncSearchSelect,
+	type AsyncSearchOption,
+} from "@/components/ui/async-search-select";
 import {
 	Dialog,
 	DialogButton,
@@ -13,6 +17,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import * as projectsApi from "@/lib/api/resources/projects";
 import { getProjectFolderPath } from "@/lib/project-folders";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectFolder, ProjectTree } from "@/types/projects";
@@ -61,8 +66,31 @@ export function FolderDialog({
 	}, [folder, initialParentId, open]);
 
 	const unavailable = useMemo(
-		() => (folder && project ? descendantIds(folder.id, project.folders) : new Set()),
+		() =>
+			folder && project
+				? descendantIds(folder.id, project.folders)
+				: new Set<string>(),
 		[folder, project],
+	);
+	const selectedParent = project?.folders.find(
+		(candidate) => candidate.id === parentId,
+	);
+	const selectedParentOption: AsyncSearchOption | null =
+		selectedParent && project
+			? {
+					value: selectedParent.id,
+					label: getProjectFolderPath(selectedParent, project.folders),
+				}
+			: null;
+	const projectId = project?.id ?? null;
+	const loadParentOptions = useCallback(
+		async (query: string, signal: AbortSignal) => {
+			if (!projectId) return [];
+			return (await projectsApi.searchProjectFolders(projectId, query, signal))
+				.filter((candidate) => !unavailable.has(candidate.id))
+				.map((candidate) => ({ value: candidate.id, label: candidate.path }));
+		},
+		[projectId, unavailable],
 	);
 
 	const save = async () => {
@@ -105,27 +133,18 @@ export function FolderDialog({
 						className="h-10 w-full rounded-[9px] border border-input bg-card px-3 text-[13.5px] font-medium text-foreground outline-none focus:border-petrol"
 					/>
 				</label>
-				<label className="block">
-					<span className="mb-1.5 block text-[11px] font-semibold text-label dark:text-muted-foreground">
-						Parent folder
-					</span>
-					<select
-						value={parentId ?? ""}
-						onChange={(event) => {
-							setParentId(event.target.value || null);
-						}}
-						className="h-10 w-full cursor-pointer rounded-[9px] border border-input bg-card px-3 text-[13px] text-foreground outline-none focus:border-petrol"
-					>
-						<option value="">Project root</option>
-						{project?.folders
-							.filter((candidate) => !unavailable.has(candidate.id))
-							.map((candidate) => (
-								<option key={candidate.id} value={candidate.id}>
-									{getProjectFolderPath(candidate, project?.folders ?? [])}
-								</option>
-							))}
-					</select>
-				</label>
+				<AsyncSearchSelect
+					label="Parent folder"
+					value={parentId}
+					selectedOption={selectedParentOption}
+					placeholder="Search folders"
+					emptyValueLabel="Project root"
+					disabled={!project}
+					loadOptions={loadParentOptions}
+					onChange={(nextParentId) => {
+						setParentId(nextParentId);
+					}}
+				/>
 				<DialogFooter>
 					<DialogButton
 						variant="outline"
