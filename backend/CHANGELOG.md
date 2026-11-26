@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.127](https://github.com/jr-k/auxilia/compare/backend-v0.11.126...backend-v0.11.127) (2026-11-26)
+
+
+### Bug Fixes
+
+* **mcp:** tell the model where the new title goes in rename_conversation ([#358](https://github.com/jr-k/auxilia/issues/358)) ([13aad29](https://github.com/jr-k/auxilia/commit/13aad29b9eba71a0b922dae973ce8665d86c5cd9))
+
 ## [0.11.126](https://github.com/jr-k/auxilia/compare/backend-v0.11.125...backend-v0.11.126) (2026-11-25)
 
 
