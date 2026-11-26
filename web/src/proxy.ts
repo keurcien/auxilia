@@ -138,10 +138,10 @@ export async function proxy(request: NextRequest) {
 			return NextResponse.next();
 		}
 
-		const response =
-			isInvitePath || isPasswordRecoveryPath
-				? NextResponse.next()
-				: authRedirect(request);
+		// A public page renders as is: redirecting it to /auth would loop
+		// whenever the browser keeps a cookie this response cannot delete
+		// (e.g. an `access_token` scoped to a parent domain).
+		const response = isPublicPath ? NextResponse.next() : authRedirect(request);
 		response.cookies.delete("access_token");
 		response.cookies.delete("active_workspace_id");
 		return response;
