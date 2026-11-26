@@ -52,12 +52,15 @@ import {
   ChatMobileActionsSheet,
   ChatMobileNotificationsRow,
   ChatMobileProjectRow,
+  ChatMobileTitleRow,
   ChatMoveToProjectButton,
   ChatNotificationsToggle,
+  ChatRenameButton,
   HeaderTip,
   headerIconButtonClass,
   useChatHeaderProject,
 } from "@/components/layout/chat-header";
+import { RenameThreadDialog } from "@/components/layout/app-sidebar/rename-thread-dialog";
 import { ThreadPlacementDialog } from "@/components/layout/app-sidebar/thread-placement-dialog";
 import { Switch } from "@/components/ui/switch";
 import { useThreadNotifications } from "@/hooks/use-thread-notifications";
@@ -139,6 +142,7 @@ const ChatPage = () => {
   const refreshThreads = useThreadsStore((state) => state.refreshThreads);
   const refreshProjectTree = useProjectsStore((state) => state.refreshTree);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
 
   const acknowledgeCurrentResponse = () => {
     acknowledgedAssistantId.current =
@@ -506,6 +510,13 @@ const ChatPage = () => {
     }),
     [folderId, projectId, thread?.firstMessageContent, threadId],
   );
+  const renameTarget = useMemo(
+    () =>
+      renameOpen
+        ? { id: threadId, title: thread?.firstMessageContent ?? null }
+        : null,
+    [renameOpen, thread?.firstMessageContent, threadId],
+  );
   const openMoveDialog = () => {
     setMoveOpen(true);
   };
@@ -767,6 +778,13 @@ const ChatPage = () => {
           {meta.viewerRole === null && (
             <ChatMoveToProjectButton onMove={openMoveDialog} />
           )}
+          {meta.viewerRole === null && (
+            <ChatRenameButton
+              onRename={() => {
+                setRenameOpen(true);
+              }}
+            />
+          )}
         </ChatHeaderLeadingActions>
       )}
       {meta.status === "ready" && (
@@ -883,6 +901,17 @@ const ChatPage = () => {
           </section>
 
           {meta.viewerRole === null && (
+            <ChatMobileTitleRow
+              title={
+                thread?.firstMessageContent?.trim() || "Untitled conversation"
+              }
+              onRename={() => {
+                setRenameOpen(true);
+              }}
+            />
+          )}
+
+          {meta.viewerRole === null && (
             <ChatMobileProjectRow onMove={openMoveDialog} />
           )}
 
@@ -952,6 +981,15 @@ const ChatPage = () => {
           onOpenChange={setMoveOpen}
           thread={placementTarget}
           onMoved={() => {
+            void recheckThreadMetadata();
+          }}
+        />
+      )}
+      {meta.viewerRole === null && (
+        <RenameThreadDialog
+          thread={renameTarget}
+          onOpenChange={setRenameOpen}
+          onRenamed={() => {
             void recheckThreadMetadata();
           }}
         />

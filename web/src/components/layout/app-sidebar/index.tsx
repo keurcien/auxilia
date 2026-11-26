@@ -87,7 +87,10 @@ import {
 } from "@/components/ui/bulk-confirm-dialog";
 import { SelectableLeading } from "@/components/ui/selectable-leading";
 import { ThreadUnreadBadge } from "@/components/ui/thread-unread-badge";
-import { RenameThreadDialog } from "@/components/layout/app-sidebar/rename-thread-dialog";
+import {
+	RenameThreadDialog,
+	type RenameThreadTarget,
+} from "@/components/layout/app-sidebar/rename-thread-dialog";
 import { AboutDialog } from "@/components/layout/app-sidebar/about-dialog";
 import { Thread } from "@/types/threads";
 import { useTheme } from "next-themes";
@@ -422,7 +425,8 @@ export function AppSidebar() {
 	const ThemeIcon =
 		themeMode === "system" ? Monitor : themeMode === "dark" ? Moon : Sun;
 	const { isMobile, setOpen, setOpenMobile, state: sidebarState } = useSidebar();
-	const [renamingThread, setRenamingThread] = useState<Thread | null>(null);
+	const [renamingThread, setRenamingThread] =
+		useState<RenameThreadTarget | null>(null);
 	const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
 	const [aboutOpen, setAboutOpen] = useState(false);
 	const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -1105,7 +1109,10 @@ export function AppSidebar() {
 																	label: "Rename",
 																	icon: <Pencil />,
 																	onClick: () => {
-																		setRenamingThread(thread);
+																		setRenamingThread({
+																			id: thread.id,
+																			title: thread.firstMessageContent,
+																		});
 																	},
 																},
 																...(canDeleteThreads

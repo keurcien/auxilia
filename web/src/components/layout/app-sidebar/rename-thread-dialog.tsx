@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
 	Dialog,
 	DialogButton,
@@ -10,32 +11,41 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import * as threadsApi from "@/lib/api/resources/threads";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useThreadsStore } from "@/stores/threads-store";
-import { Thread } from "@/types/threads";
+
+export interface RenameThreadTarget {
+	id: string;
+	title: string | null;
+}
 
 interface RenameThreadDialogProps {
-	thread: Thread | null;
+	thread: RenameThreadTarget | null;
 	onOpenChange: (open: boolean) => void;
+	onRenamed?: (title: string) => void;
 }
 
 export function RenameThreadDialog({
 	thread,
 	onOpenChange,
+	onRenamed,
 }: RenameThreadDialogProps) {
-	const { renameThread } = useThreadsStore();
+	const renameThread = useThreadsStore((state) => state.renameThread);
+	const refreshTree = useProjectsStore((state) => state.refreshTree);
 	const [title, setTitle] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
 	useEffect(() => {
-		setTitle(thread?.firstMessageContent ?? "");
+		setTitle(thread?.title ?? "");
 	}, [thread]);
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
-		if (!thread) return;
+		if (!thread || isSubmitting) return;
 		const trimmed = title.trim();
-		if (!trimmed || trimmed === thread.firstMessageContent) {
+		if (!trimmed || trimmed === thread.title?.trim()) {
 			onOpenChange(false);
 			return;
 		}
@@ -43,9 +53,13 @@ export function RenameThreadDialog({
 		try {
 			await threadsApi.renameThread(thread.id, trimmed);
 			renameThread(thread.id, trimmed);
+			onRenamed?.(trimmed);
 			onOpenChange(false);
+			void refreshTree().catch(() => {});
 		} catch (error) {
-			console.error("Error renaming thread: ", error);
+			toast.error(
+				getApiErrorMessage(error, "The conversation could not be renamed."),
+			);
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -55,7 +69,7 @@ export function RenameThreadDialog({
 		<Dialog open={thread !== null} onOpenChange={onOpenChange}>
 			<DialogContent className="sm:max-w-[560px]">
 				<DialogHeader>
-					<DialogTitle>Rename thread</DialogTitle>
+					<DialogTitle>Rename conversation</DialogTitle>
 					<DialogDescription>
 						Give this conversation a new title
 					</DialogDescription>
@@ -78,7 +92,8 @@ export function RenameThreadDialog({
 							id="thread-title"
 							type="text"
 							autoFocus
-							placeholder="Thread title"
+							maxLength={255}
+							placeholder="Conversation title"
 							value={title}
 							onChange={(e) => {
 								setTitle(e.target.value);
@@ -96,7 +111,7 @@ export function RenameThreadDialog({
 						>
 							Cancel
 						</DialogButton>
-						<DialogButton type="submit" disabled={isSubmitting}>
+						<DialogButton type="submit" disabled={isSubmitting || !title.trim()}>
 							{isSubmitting ? "Saving…" : "Save"}
 						</DialogButton>
 					</DialogFooter>

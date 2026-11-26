@@ -50,6 +50,10 @@ import { ConversationCompletionButton } from "./conversation-completion-button";
 import { FolderDialog } from "./folder-dialog";
 import { ProjectDialog } from "./project-dialog";
 import {
+	RenameThreadDialog,
+	type RenameThreadTarget,
+} from "./rename-thread-dialog";
+import {
 	ThreadPlacementDialog,
 	type ThreadPlacementTarget,
 } from "./thread-placement-dialog";
@@ -177,6 +181,8 @@ export function ProjectsTree({
 	const [folderDialog, setFolderDialog] = useState<FolderDialogState>(null);
 	const [movingThread, setMovingThread] =
 		useState<ThreadPlacementTarget | null>(null);
+	const [renamingThread, setRenamingThread] =
+		useState<RenameThreadTarget | null>(null);
 	const [movingTrigger, setMovingTrigger] =
 		useState<TriggerPlacementTarget | null>(null);
 	const [teams, setTeams] = useState<Team[]>([]);
@@ -505,6 +511,7 @@ export function ProjectsTree({
 											void removeFolder(folder);
 										}}
 										onMoveThread={setMovingThread}
+										onRenameThread={setRenamingThread}
 										onMoveTrigger={setMovingTrigger}
 										onToggleCompletion={(thread) => {
 											void toggleCompletion(thread);
@@ -545,6 +552,12 @@ export function ProjectsTree({
 				}}
 				thread={movingThread}
 			/>
+			<RenameThreadDialog
+				thread={renamingThread}
+				onOpenChange={(open) => {
+					if (!open) setRenamingThread(null);
+				}}
+			/>
 			<TriggerPlacementDialog
 				open={movingTrigger !== null}
 				onOpenChange={(open) => {
@@ -569,6 +582,7 @@ function ProjectResources({
 	onCreateFolder,
 	onDeleteFolder,
 	onMoveThread,
+	onRenameThread,
 	onMoveTrigger,
 	onToggleCompletion,
 	onDeleteThread,
@@ -586,6 +600,7 @@ function ProjectResources({
 	onCreateFolder: (parentId: string) => void;
 	onDeleteFolder: (folder: ProjectFolder) => void;
 	onMoveThread: (thread: ThreadPlacementTarget) => void;
+	onRenameThread: (thread: RenameThreadTarget) => void;
 	onMoveTrigger: (trigger: TriggerPlacementTarget) => void;
 	onToggleCompletion: (thread: ProjectThread) => void;
 	/** Unset when the user is not allowed to delete conversations. */
@@ -705,6 +720,7 @@ function ProjectResources({
 									onCreateFolder={onCreateFolder}
 									onDeleteFolder={onDeleteFolder}
 									onMoveThread={onMoveThread}
+									onRenameThread={onRenameThread}
 									onMoveTrigger={onMoveTrigger}
 									onToggleCompletion={onToggleCompletion}
 									onDeleteThread={onDeleteThread}
@@ -810,6 +826,16 @@ function ProjectResources({
 														title,
 														projectId: project.id,
 														folderId: thread.folderId,
+													});
+												},
+											},
+											{
+												label: "Rename",
+												icon: <Pencil />,
+												onClick: () => {
+													onRenameThread({
+														id: thread.id,
+														title: thread.title,
 													});
 												},
 											},

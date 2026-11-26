@@ -29,6 +29,7 @@ import {
 	MoreHorizontal,
 	MoreVertical,
 	PanelRight,
+	Pencil,
 	Search,
 	SquarePen,
 	Eraser,
@@ -61,6 +62,10 @@ import {
 	type BulkThread,
 	ThreadBulkMenu,
 } from "@/components/layout/app-sidebar/thread-bulk-menu";
+import {
+	RenameThreadDialog,
+	type RenameThreadTarget,
+} from "@/components/layout/app-sidebar/rename-thread-dialog";
 import {
 	ThreadPlacementDialog,
 	type ThreadPlacementTarget,
@@ -513,6 +518,7 @@ function ThreadRow({
 	onToggleCompletion,
 	onToggleReadState,
 	onMove,
+	onRename,
 	onDelete,
 }: {
 	thread: ProjectThread;
@@ -524,6 +530,7 @@ function ThreadRow({
 	onToggleReadState: () => void;
 	onDelete?: () => void;
 	onMove: () => void;
+	onRename: () => void;
 }) {
 	const title = titleOf(thread);
 	return (
@@ -616,6 +623,11 @@ function ThreadRow({
 									label: "Move or detach conversation",
 									icon: <FolderInput />,
 									onClick: onMove,
+								},
+								{
+									label: "Rename",
+									icon: <Pencil />,
+									onClick: onRename,
 								},
 							]
 						: []),
@@ -992,6 +1004,8 @@ export default function ProjectDetailView({
 	const [deleteTarget, setDeleteTarget] = useState<ProjectThread | null>(null);
 	const [movingThread, setMovingThread] =
 		useState<ThreadPlacementTarget | null>(null);
+	const [renamingThread, setRenamingThread] =
+		useState<RenameThreadTarget | null>(null);
 	const [movingTrigger, setMovingTrigger] =
 		useState<TriggerPlacementTarget | null>(null);
 	const [infoPanelWidth, setInfoPanelWidth] = useState(
@@ -1405,6 +1419,9 @@ export default function ProjectDetailView({
 					projectId: detail.id,
 					folderId: thread.folderId,
 				});
+			}}
+			onRename={() => {
+				setRenamingThread({ id: thread.id, title: thread.title });
 			}}
 		/>
 	);
@@ -1862,6 +1879,15 @@ export default function ProjectDetailView({
 						}
 					}}
 					thread={movingThread}
+				/>
+				<RenameThreadDialog
+					thread={renamingThread}
+					onOpenChange={(open) => {
+						if (!open) setRenamingThread(null);
+					}}
+					onRenamed={() => {
+						void refreshDetail(detail.id);
+					}}
 				/>
 				<BulkConfirmDialog
 					open={bulkDeleteOpen}

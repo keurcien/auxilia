@@ -10,6 +10,7 @@ import {
 	FolderInput,
 	LoaderCircle,
 	MoreHorizontal,
+	Pencil,
 	Settings2,
 } from "lucide-react";
 import {
@@ -401,7 +402,56 @@ export function ChatMoveToProjectButton({ onMove }: { onMove: () => void }) {
 	);
 }
 
+export function ChatRenameButton({ onRename }: { onRename: () => void }) {
+	return (
+		<HeaderTip label="Rename" hint="Give this conversation a new title">
+			<button
+				type="button"
+				aria-label="Rename conversation"
+				onClick={onRename}
+				className={headerIconButtonClass()}
+			>
+				<Pencil className="size-3.5" />
+			</button>
+		</HeaderTip>
+	);
+}
+
 const MobileActionsCloseContext = createContext<() => void>(() => {});
+
+export function ChatMobileTitleRow({
+	title,
+	onRename,
+}: {
+	title: string;
+	onRename: () => void;
+}) {
+	const close = useContext(MobileActionsCloseContext);
+	return (
+		<section className="mt-6">
+			<div className="mb-2 px-1">
+				<h2 className="font-display text-[15px] font-semibold text-sidebar-foreground">
+					Title
+				</h2>
+			</div>
+			<div className="flex min-h-14 items-center justify-between gap-4 rounded-[12px] border border-sidebar-border bg-card px-4 py-2.5">
+				<span className="min-w-0 truncate text-[15px] font-semibold text-sidebar-foreground">
+					{title}
+				</span>
+				<button
+					type="button"
+					onClick={() => {
+						close();
+						onRename();
+					}}
+					className="flex h-10 shrink-0 touch-manipulation cursor-pointer items-center rounded-[8px] bg-petrol px-3.5 text-[14px] font-semibold text-white shadow-raised transition-[background-color,transform] hover:bg-petrol/90 active:scale-[0.98] dark:bg-white dark:text-ink dark:hover:bg-white/90"
+				>
+					Rename
+				</button>
+			</div>
+		</section>
+	);
+}
 
 export function ChatMobileProjectRow({ onMove }: { onMove: () => void }) {
 	const close = useContext(MobileActionsCloseContext);
